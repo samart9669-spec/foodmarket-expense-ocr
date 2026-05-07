@@ -1,39 +1,39 @@
 import base64
-import json
 
-import google.auth.transport.requests
-import requests as http_requests
+import google.generativeai as genai
 import streamlit as st
-from google.oauth2.service_account import Credentials
 
-_VISION_URL = "https://vision.googleapis.com/v1/images:annotate"
-_VISION_SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
+_MODEL = "gemini-2.5-flash-lite"
+
+_PROMPT = (
+    "Extract all text from this file exactly as it appears. "
+    "If it is a payment slip or receipt, include all numbers, dates, names, and amounts. "
+    "Return plain text only."
+)
+
+_MIME = {
+    "jpg":  "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png":  "image/png",
+    "pdf":  "application/pdf",
+}
 
 
-def _get_access_token() -> str:
-    creds_info = json.loads(st.secrets["GCP_SERVICE_ACCOUNT"])
-    creds = Credentials.from_service_account_info(creds_info, scopes=_VISION_SCOPES)
-    creds.refresh(google.auth.transport.requests.Request())
-    return creds.token
+def _get_model() -> genai.GenerativeModel:
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    return genai.GenerativeModel(_MODEL)
 
 
-def extract_text_from_image(image_bytes: bytes) -> str:
-    """ส่งรูปสลิปไปยัง Google Cloud Vision API และคืนค่าข้อความที่อ่านได้"""
-    token = _get_access_token()
-    payload = {
-        "requests": [
-            {
-                "image": {"content": base64.b64encode(image_bytes).decode("utf-8")},
-                "features": [{"type": "TEXT_DETECTION", "maxResults": 1}],
-            }
-        ]
-    }
-    resp = http_requests.post(
-        _VISION_URL,
-        json=payload,
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    annotations = resp.json().get("responses", [{}])[0].get("textAnnotations", [])
-    return annotations[0].get("description", "") if annotations else ""
+def extract_text_from_file(file_bytes: bytes, filename: str) -> str:
+    """Extract text from JPG, PNG, PDF, or CSV using Gemini 2.5 Flash Lite."""
+    ext = filename.rsplit(".", 1)[-1].lower()
+
+    if ext == "csv":
+        return file_bytes.decode("utf-8", errors="replace")
+
+    mime_type = _MIME.get(ext, "application/octet-stream")
+    response = _get_model().generate_content([
+        {"inline_data": {"mime_type": mime_type, "data": base64.b64encode(file_bytes).decode()}},
+        _PROMPT,
+    ])
+    return response.text

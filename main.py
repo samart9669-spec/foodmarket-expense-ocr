@@ -15,7 +15,7 @@ from database.db_manager import (
 )
 from modules.data_parser import parse_slip
 from modules.drive_uploader import upload_expense_files
-from modules.ocr_processor import extract_text_from_image
+from modules.ocr_processor import extract_text_from_file
 from modules.sheets_updater import sync_to_sheets
 
 # ── Page config ───────────────────────────────────────────────────────────────
@@ -96,7 +96,7 @@ with tab_submit:
     with col_slip:
         slip_file = st.file_uploader(
             "สลิปการชำระเงิน (จำเป็น)",
-            type=["jpg", "jpeg", "png"],
+            type=["jpg", "jpeg", "png", "pdf", "csv"],
             key="slip_upload",
         )
     with col_attach:
@@ -124,12 +124,12 @@ with tab_submit:
         </div>""", unsafe_allow_html=True)
 
         @st.cache_data(show_spinner=False)
-        def _run_ocr(file_bytes: bytes) -> str:
-            return extract_text_from_image(file_bytes)
+        def _run_ocr(file_bytes: bytes, filename: str) -> str:
+            return extract_text_from_file(file_bytes, filename)
 
-        with st.spinner("กำลังสแกนสลิปด้วย Google Vision API..."):
+        with st.spinner("กำลังสแกนด้วย Gemini 2.5 Flash Lite..."):
             try:
-                ocr_text = _run_ocr(slip_bytes)
+                ocr_text = _run_ocr(slip_bytes, slip_file.name)
                 parsed = parse_slip(ocr_text, note)
             except Exception as exc:
                 st.warning(f"OCR ไม่สำเร็จ: {exc} — กรุณากรอกข้อมูลเอง")
