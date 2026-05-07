@@ -1,0 +1,6 @@
+streamlit
+Pillow
+google-generativeai
+gspread
+google-auth
+pandas
