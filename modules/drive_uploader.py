@@ -63,7 +63,8 @@ def upload_expense_files(
 ):
     """อัปโหลด slip + เอกสารแนบไปยัง Google Drive และคืน URL ทั้งสอง"""
     service = _get_drive_service()
-    parent_id = st.secrets.get("DRIVE_FOLDER_ID", None)
+    _raw = st.secrets.get("DRIVE_FOLDER_ID", "").strip()
+    parent_id = _raw if (_raw and not _raw.startswith("your-")) else None
     root_id   = _get_or_create_folder(service, "Expense Tracking", parent_id)
     month_id  = _get_or_create_folder(service, year_month, root_id)
     folder_id = _get_or_create_folder(service, transaction_id, month_id)
