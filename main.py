@@ -209,7 +209,13 @@ with tab_submit:
                     "attachment_url": attach_url,
                     "status":         "verified",
                 })
-                st.success(f"บันทึกสำเร็จ! รหัสรายการ: **{txn_id}**")
+                with st.spinner("กำลังซิงค์ไปยัง Google Sheets..."):
+                    try:
+                        synced = sync_to_sheets()
+                        st.success(f"บันทึกและซิงค์ Sheets สำเร็จ! รหัสรายการ: **{txn_id}** ({synced} รายการ)")
+                    except Exception as exc:
+                        st.success(f"บันทึกสำเร็จ! รหัสรายการ: **{txn_id}**")
+                        st.warning(f"ซิงค์ Sheets ไม่สำเร็จ: {exc}")
                 st.balloons()
     else:
         st.info("กรุณาอัปโหลดรูปสลิปการชำระเงินก่อน (ขั้นตอนที่ 1)")
