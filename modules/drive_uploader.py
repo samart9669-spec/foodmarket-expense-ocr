@@ -24,14 +24,22 @@ def _get_or_create_folder(service, name: str, parent_id=None) -> str:
     )
     if parent_id:
         query += f" and '{parent_id}' in parents"
-    results = service.files().list(q=query, fields="files(id)", pageSize=1).execute()
+    results = service.files().list(
+        q=query,
+        fields="files(id)",
+        pageSize=1,
+        supportsAllDrives=True,
+        includeItemsFromAllDrives=True,
+    ).execute()
     files = results.get("files", [])
     if files:
         return files[0]["id"]
     meta = {"name": name, "mimeType": "application/vnd.google-apps.folder"}
     if parent_id:
         meta["parents"] = [parent_id]
-    folder = service.files().create(body=meta, fields="id").execute()
+    folder = service.files().create(
+        body=meta, fields="id", supportsAllDrives=True
+    ).execute()
     return folder["id"]
 
 
@@ -39,6 +47,7 @@ def _make_public(service, file_id: str):
     service.permissions().create(
         fileId=file_id,
         body={"role": "reader", "type": "anyone"},
+        supportsAllDrives=True,
     ).execute()
 
 
@@ -47,7 +56,10 @@ def _upload_file(service, file_bytes: bytes, filename: str, folder_id: str) -> s
     media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mime_type)
     meta = {"name": filename, "parents": [folder_id]}
     uploaded = service.files().create(
-        body=meta, media_body=media, fields="id,webViewLink"
+        body=meta,
+        media_body=media,
+        fields="id,webViewLink",
+        supportsAllDrives=True,
     ).execute()
     _make_public(service, uploaded["id"])
     return uploaded.get("webViewLink", "")
@@ -65,6 +77,14 @@ def upload_expense_files(
     service = _get_drive_service()
     _raw = st.secrets.get("DRIVE_FOLDER_ID", "").strip()
     parent_id = _raw if (_raw and not _raw.startswith("your-")) else None
+
+    if not parent_id:
+        raise ValueError(
+            "DRIVE_FOLDER_ID ยังไม่ได้ตั้งค่า — "
+            "กรุณาสร้างโฟลเดอร์ใน Google Drive แล้ว Share ให้ service account email "
+            "(Editor) จากนั้นใส่ folder ID ใน secrets.toml"
+        )
+
     root_id   = _get_or_create_folder(service, "Expense Tracking", parent_id)
     month_id  = _get_or_create_folder(service, year_month, root_id)
     folder_id = _get_or_create_folder(service, transaction_id, month_id)
