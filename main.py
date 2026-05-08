@@ -185,16 +185,18 @@ with tab_submit:
                 year_month = today.strftime("%Y-%m")
                 slip_url, attach_url = "", ""
 
-                with st.spinner("กำลังอัปโหลดไฟล์ขึ้น Google Drive..."):
-                    try:
-                        ab = attach_file.read() if attach_file else None
-                        an = attach_file.name if attach_file else None
-                        slip_url, attach_url = upload_expense_files(
-                            txn_id, year_month, slip_bytes, slip_file.name, ab, an,
-                        )
-                        st.success("อัปโหลด Google Drive เรียบร้อย ✅")
-                    except Exception as exc:
-                        st.warning(f"Drive upload ล้มเหลว: {exc} — บันทึกโดยไม่มี URL")
+                _drive_enabled = str(st.secrets.get("ENABLE_DRIVE_UPLOAD", "false")).lower() == "true"
+                if _drive_enabled:
+                    with st.spinner("กำลังอัปโหลดไฟล์ขึ้น Google Drive..."):
+                        try:
+                            ab = attach_file.read() if attach_file else None
+                            an = attach_file.name if attach_file else None
+                            slip_url, attach_url = upload_expense_files(
+                                txn_id, year_month, slip_bytes, slip_file.name, ab, an,
+                            )
+                            st.success("อัปโหลด Google Drive เรียบร้อย ✅")
+                        except Exception as exc:
+                            st.warning(f"Drive upload ล้มเหลว: {exc} — บันทึกโดยไม่มี URL")
 
                 insert_transaction({
                     "transaction_id": txn_id,
