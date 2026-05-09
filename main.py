@@ -150,8 +150,8 @@ with tab_submit:
                 if parsed.get("transfer_date") else datetime.date.today()
             )
             transfer_date = st.date_input("วันที่โอนเงิน", value=default_date)
-            amount = st.number_input(
-                "จำนวนเงิน (บาท)",
+            total_amount = st.number_input(
+                "ยอดรวมในสลิป (บาท)",
                 value=float(parsed["amount"]) if parsed.get("amount") else 0.0,
                 min_value=0.0, step=0.01, format="%.2f",
             )
@@ -160,13 +160,75 @@ with tab_submit:
                 "ผู้รับเงิน / ร้านค้า",
                 value=parsed.get("receiver_name", ""),
             )
-            cat_opts = list(CATEGORY_KEYWORDS.keys())
+
+        cat_opts = list(CATEGORY_KEYWORDS.keys())
+        split_mode = st.toggle("แยกหลายรายการ (ยอดโอนเดียวหลายหมวด)", value=False)
+
+        if not split_mode:
             default_cat = parsed.get("category", "อื่นๆ")
             category = st.selectbox(
                 "หมวดหมู่ค่าใช้จ่าย",
                 options=cat_opts,
                 index=cat_opts.index(default_cat) if default_cat in cat_opts else 0,
             )
+        else:
+            st.markdown("""
+            <div class="card">
+                <div class="card-header">
+                    <span class="step-num">✂️</span>
+                    <span class="card-title">แยกรายการตามหมวดหมู่</span>
+                </div>
+            </div>""", unsafe_allow_html=True)
+
+            slip_key = hash(slip_bytes)
+            if st.session_state.get("_slip_key") != slip_key:
+                st.session_state.split_rows = [
+                    {"category": parsed.get("category", "อื่นๆ"), "amount": total_amount, "note": note}
+                ]
+                st.session_state._slip_key = slip_key
+
+            st.markdown("**หมวดหมู่ · จำนวนเงิน · หมายเหตุ**")
+            to_delete = []
+            for i, row in enumerate(st.session_state.split_rows):
+                c1, c2, c3, c4 = st.columns([3, 2, 3, 1])
+                with c1:
+                    row["category"] = st.selectbox(
+                        f"หมวดหมู่ #{i+1}", cat_opts,
+                        index=cat_opts.index(row["category"]) if row["category"] in cat_opts else 0,
+                        key=f"sc_{i}", label_visibility="collapsed",
+                    )
+                with c2:
+                    row["amount"] = st.number_input(
+                        f"จำนวน #{i+1}", min_value=0.0, value=float(row["amount"]),
+                        step=0.01, format="%.2f", key=f"sa_{i}", label_visibility="collapsed",
+                    )
+                with c3:
+                    row["note"] = st.text_input(
+                        f"หมายเหตุ #{i+1}", value=row["note"],
+                        key=f"sn_{i}", label_visibility="collapsed",
+                    )
+                with c4:
+                    if len(st.session_state.split_rows) > 1 and st.button("🗑️", key=f"sd_{i}"):
+                        to_delete.append(i)
+
+            for i in sorted(to_delete, reverse=True):
+                st.session_state.split_rows.pop(i)
+                st.rerun()
+
+            col_add, col_status = st.columns([1, 2])
+            with col_add:
+                if st.button("➕ เพิ่มรายการ"):
+                    st.session_state.split_rows.append({"category": "อื่นๆ", "amount": 0.0, "note": ""})
+                    st.rerun()
+            with col_status:
+                split_total = sum(r["amount"] for r in st.session_state.split_rows)
+                remaining = total_amount - split_total
+                if total_amount > 0 and abs(remaining) < 0.01:
+                    st.success(f"✅ ยอดครบ {split_total:,.2f} บาท")
+                elif remaining > 0:
+                    st.warning(f"⚠️ ยังเหลือ {remaining:,.2f} บาท")
+                else:
+                    st.error(f"❌ เกินยอด {-remaining:,.2f} บาท")
 
         st.markdown("""
         <div class="card">
@@ -177,45 +239,63 @@ with tab_submit:
         </div>""", unsafe_allow_html=True)
 
         if st.button("✅ ยืนยันและบันทึก", type="primary", use_container_width=True):
-            if amount <= 0:
+            if total_amount <= 0:
                 st.warning("กรุณาระบุจำนวนเงินที่มากกว่า 0")
+            elif split_mode and all(r["amount"] <= 0 for r in st.session_state.split_rows):
+                st.warning("กรุณาระบุจำนวนเงินอย่างน้อย 1 รายการ")
             else:
                 today = datetime.date.today()
-                txn_id = f"EXP-{today.strftime('%Y%m%d')}-{str(uuid.uuid4())[:6].upper()}"
                 year_month = today.strftime("%Y-%m")
                 slip_url, attach_url = "", ""
 
                 _drive_enabled = str(st.secrets.get("ENABLE_DRIVE_UPLOAD", "false")).lower() == "true"
                 if _drive_enabled:
-                    with st.spinner("กำลังอัปโหลดไฟล์ขึ้น Google Drive..."):
+                    _first_id = f"EXP-{today.strftime('%Y%m%d')}-{str(uuid.uuid4())[:6].upper()}"
+                    with st.spinner("กำลังอัปโหลดไฟล์..."):
                         try:
                             ab = attach_file.read() if attach_file else None
                             an = attach_file.name if attach_file else None
                             slip_url, attach_url = upload_expense_files(
-                                txn_id, year_month, slip_bytes, slip_file.name, ab, an,
+                                _first_id, year_month, slip_bytes, slip_file.name, ab, an,
                             )
-                            st.success("อัปโหลด Google Drive เรียบร้อย ✅")
+                            st.success("อัปโหลดไฟล์เรียบร้อย ✅")
                         except Exception as exc:
-                            st.warning(f"Drive upload ล้มเหลว: {exc} — บันทึกโดยไม่มี URL")
+                            st.warning(f"อัปโหลดไฟล์ล้มเหลว: {exc}")
 
-                insert_transaction({
-                    "transaction_id": txn_id,
-                    "transfer_date":  str(transfer_date),
-                    "amount":         amount,
-                    "receiver_name":  receiver_name,
-                    "category":       category,
-                    "note":           note,
-                    "slip_url":       slip_url,
-                    "attachment_url": attach_url,
-                    "status":         "verified",
-                })
+                items = (
+                    st.session_state.split_rows
+                    if split_mode
+                    else [{"category": category, "amount": total_amount, "note": note}]
+                )
+
+                saved_ids = []
+                for item in items:
+                    if item["amount"] <= 0:
+                        continue
+                    txn_id = f"EXP-{today.strftime('%Y%m%d')}-{str(uuid.uuid4())[:6].upper()}"
+                    insert_transaction({
+                        "transaction_id": txn_id,
+                        "transfer_date":  str(transfer_date),
+                        "amount":         item["amount"],
+                        "receiver_name":  receiver_name,
+                        "category":       item["category"],
+                        "note":           item["note"],
+                        "slip_url":       slip_url,
+                        "attachment_url": attach_url,
+                        "status":         "verified",
+                    })
+                    saved_ids.append(txn_id)
+
                 with st.spinner("กำลังซิงค์ไปยัง Google Sheets..."):
                     try:
                         synced = sync_to_sheets()
-                        st.success(f"บันทึกและซิงค์ Sheets สำเร็จ! รหัสรายการ: **{txn_id}** ({synced} รายการ)")
+                        st.success(f"บันทึก {len(saved_ids)} รายการ และซิงค์ Sheets สำเร็จ! ({synced} รายการ)")
                     except Exception as exc:
-                        st.success(f"บันทึกสำเร็จ! รหัสรายการ: **{txn_id}**")
+                        st.success(f"บันทึกสำเร็จ {len(saved_ids)} รายการ")
                         st.warning(f"ซิงค์ Sheets ไม่สำเร็จ: {exc}")
+
+                if split_mode:
+                    st.session_state.split_rows = [{"category": "อื่นๆ", "amount": 0.0, "note": ""}]
                 st.balloons()
     else:
         st.info("กรุณาอัปโหลดรูปสลิปการชำระเงินก่อน (ขั้นตอนที่ 1)")
