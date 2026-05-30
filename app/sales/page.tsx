@@ -1,5 +1,7 @@
 'use client'
 
+export const runtime = 'edge'
+
 import { useEffect, useState, useCallback } from 'react'
 import { getTodayString, formatCurrency, getEmployeeTypeLabel } from '@/lib/utils'
 
@@ -49,7 +51,7 @@ export default function SalesPage() {
       let url = `/api/sales?date=${date}`
       if (filterSalesPoint) url += `&sales_point_id=${filterSalesPoint}`
       const res = await fetch(url)
-      const data = await res.json()
+      const data = await res.json() as any
       setSales(data.sales || [])
     } finally {
       setLoading(false)
@@ -60,10 +62,10 @@ export default function SalesPage() {
     fetchSales()
     fetch('/api/employees?type=sales')
       .then((r) => r.json())
-      .then((d) => setEmployees(d.employees || []))
+      .then((d: any) => setEmployees(d.employees || []))
     fetch('/api/sales-points')
       .then((r) => r.json())
-      .then((d) => setSalesPoints(d.salesPoints || []))
+      .then((d: any) => setSalesPoints(d.salesPoints || []))
   }, [fetchSales])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -90,7 +92,7 @@ export default function SalesPage() {
         setForm({ employee_id: '', sales_point_id: '', amount: '', notes: '' })
         fetchSales()
       } else {
-        const data = await res.json()
+        const data = await res.json() as any
         alert(data.error || 'เกิดข้อผิดพลาด')
       }
     } finally {
@@ -104,7 +106,6 @@ export default function SalesPage() {
     fetchSales()
   }
 
-  // Compute summaries
   const totalSales = sales.reduce((sum, s) => sum + s.amount, 0)
 
   const byEmployee = sales.reduce((acc, s) => {
@@ -166,7 +167,6 @@ export default function SalesPage() {
         </div>
       </div>
 
-      {/* Filters */}
       <div className="card">
         <div className="flex flex-wrap gap-3">
           <div>
@@ -199,7 +199,6 @@ export default function SalesPage() {
         </div>
       </div>
 
-      {/* Add Sale Form */}
       {showForm && (
         <div className="card">
           <h2 className="font-semibold text-gray-900 mb-4">บันทึกยอดขาย</h2>
@@ -269,10 +268,8 @@ export default function SalesPage() {
         </div>
       )}
 
-      {/* Summary Cards */}
       {!loading && sales.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* By Employee */}
           <div className="card">
             <h3 className="font-semibold text-gray-900 mb-3">ยอดขายแยกตามพนักงาน</h3>
             <div className="space-y-2">
@@ -290,7 +287,6 @@ export default function SalesPage() {
             </div>
           </div>
 
-          {/* By Sales Point */}
           <div className="card">
             <h3 className="font-semibold text-gray-900 mb-3">ยอดขายแยกตามจุดขาย</h3>
             <div className="space-y-2">
@@ -311,7 +307,6 @@ export default function SalesPage() {
         </div>
       )}
 
-      {/* Sales Table */}
       <div className="card p-0 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100">
           <h2 className="font-semibold text-gray-900">รายการยอดขาย</h2>

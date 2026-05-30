@@ -1,5 +1,7 @@
 'use client'
 
+export const runtime = 'edge'
+
 import { useEffect, useState, useCallback } from 'react'
 import { getTodayString, formatCurrency, getEmployeeTypeLabel, getPayrollStatusLabel } from '@/lib/utils'
 import EmployeeTypeTag from '@/components/EmployeeTypeTag'
@@ -63,7 +65,6 @@ export default function PayrollPage() {
   const [calculating, setCalculating] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  // Period for calculation
   const now = new Date()
   const firstDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
   const [periodStart, setPeriodStart] = useState(firstDay)
@@ -79,7 +80,7 @@ export default function PayrollPage() {
     setLoading(true)
     try {
       const res = await fetch('/api/payroll')
-      const data = await res.json()
+      const data = await res.json() as any
       setPayrollList(data.payroll || [])
     } finally {
       setLoading(false)
@@ -90,7 +91,7 @@ export default function PayrollPage() {
     fetchPayroll()
     fetch('/api/employees')
       .then((r) => r.json())
-      .then((d) => setEmployees(d.employees || []))
+      .then((d: any) => setEmployees(d.employees || []))
   }, [fetchPayroll])
 
   const handleCalculate = async () => {
@@ -114,7 +115,7 @@ export default function PayrollPage() {
           deductions,
         }),
       })
-      const data = await res.json()
+      const data = await res.json() as any
       if (!res.ok) {
         setCalcError(data.error || 'เกิดข้อผิดพลาด')
         return
@@ -149,7 +150,7 @@ export default function PayrollPage() {
         fetchPayroll()
         alert('บันทึกข้อมูลเงินเดือนสำเร็จ')
       } else {
-        const data = await res.json()
+        const data = await res.json() as any
         alert(data.error || 'เกิดข้อผิดพลาด')
       }
     } finally {
@@ -224,7 +225,6 @@ export default function PayrollPage() {
         </button>
       </div>
 
-      {/* Calculator */}
       <div className="card">
         <h2 className="font-semibold text-gray-900 mb-4">คำนวณเงินเดือน</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -303,7 +303,6 @@ export default function PayrollPage() {
           </div>
         )}
 
-        {/* Calculation Result */}
         {calcResult && (
           <div className="mt-4 p-5 bg-blue-50 border border-blue-200 rounded-xl">
             <div className="flex items-center justify-between mb-4">
@@ -388,7 +387,6 @@ export default function PayrollPage() {
         )}
       </div>
 
-      {/* Payroll Records */}
       <div className="card p-0 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100">
           <h2 className="font-semibold text-gray-900">รายการเงินเดือน</h2>
