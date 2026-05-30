@@ -75,7 +75,12 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">หน้าหลัก</h1>
           <p className="text-gray-500 text-sm mt-1">
-            {currentTime.toLocaleDateString('th-TH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            {currentTime.toLocaleDateString('th-TH', {
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            })}
           </p>
         </div>
         <div className="text-right">
@@ -110,7 +115,9 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">ยอดขายวันนี้</p>
-              <p className="text-3xl font-bold text-green-700 mt-1">{formatCurrency(data?.today_sales_total || 0)}</p>
+              <p className="text-3xl font-bold text-green-700 mt-1">
+                {formatCurrency(data?.today_sales_total || 0)}
+              </p>
               <p className="text-xs text-gray-400 mt-1">รวมทุกจุดขาย</p>
             </div>
             <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
@@ -154,7 +161,7 @@ export default function DashboardPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Link href="/attendance/scan" className="card flex items-center gap-4 hover:shadow-md transition-shadow cursor-pointer group">
-          <div className="w-14 h-14 bg-blue-800 rounded-xl flex items-center justify-center group-hover:bg-blue-700 flex-shrink-0">
+          <div className="w-14 h-14 bg-blue-800 rounded-xl flex items-center justify-center group-hover:bg-blue-700 transition-colors flex-shrink-0">
             <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -166,7 +173,7 @@ export default function DashboardPage() {
           </div>
         </Link>
         <Link href="/sales" className="card flex items-center gap-4 hover:shadow-md transition-shadow cursor-pointer group">
-          <div className="w-14 h-14 bg-green-600 rounded-xl flex items-center justify-center group-hover:bg-green-700 flex-shrink-0">
+          <div className="w-14 h-14 bg-green-600 rounded-xl flex items-center justify-center group-hover:bg-green-700 transition-colors flex-shrink-0">
             <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
             </svg>
@@ -177,7 +184,7 @@ export default function DashboardPage() {
           </div>
         </Link>
         <Link href="/payroll" className="card flex items-center gap-4 hover:shadow-md transition-shadow cursor-pointer group">
-          <div className="w-14 h-14 bg-purple-600 rounded-xl flex items-center justify-center group-hover:bg-purple-700 flex-shrink-0">
+          <div className="w-14 h-14 bg-purple-600 rounded-xl flex items-center justify-center group-hover:bg-purple-700 transition-colors flex-shrink-0">
             <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
             </svg>
@@ -196,6 +203,9 @@ export default function DashboardPage() {
         </div>
         {!data?.recent_attendance || data.recent_attendance.length === 0 ? (
           <div className="text-center py-8 text-gray-400">
+            <svg className="w-10 h-10 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
             <p>ยังไม่มีการเข้างานวันนี้</p>
           </div>
         ) : (
@@ -219,8 +229,12 @@ export default function DashboardPage() {
                         {getEmployeeTypeLabel(att.employee_type)}
                       </span>
                     </td>
-                    <td className="table-cell font-mono text-sm">{att.check_in ? att.check_in.substring(11, 16) : '-'}</td>
-                    <td className="table-cell font-mono text-sm">{att.check_out ? att.check_out.substring(11, 16) : '-'}</td>
+                    <td className="table-cell font-mono text-sm">
+                      {att.check_in ? att.check_in.substring(11, 16) : '-'}
+                    </td>
+                    <td className="table-cell font-mono text-sm">
+                      {att.check_out ? att.check_out.substring(11, 16) : '-'}
+                    </td>
                     <td className="table-cell">{getStatusBadge(att.status)}</td>
                   </tr>
                 ))}

@@ -5,33 +5,33 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
     "vercel-build": "next build",
+    "start": "next start",
     "pages:build": "npx @cloudflare/next-on-pages",
     "preview": "npm run pages:build && wrangler pages dev",
     "deploy": "npm run pages:build && wrangler pages deploy"
   },
   "dependencies": {
+    "@cloudflare/next-on-pages": "^1.13.2",
+    "date-fns": "^3.6.0",
+    "face-api.js": "^0.22.2",
+    "html5-qrcode": "^2.3.8",
     "next": "14.2.5",
     "react": "^18",
     "react-dom": "^18",
-    "@cloudflare/next-on-pages": "^1.13.2",
-    "face-api.js": "^0.22.2",
-    "html5-qrcode": "^2.3.8",
-    "uuid": "^9.0.0",
-    "date-fns": "^3.6.0",
-    "recharts": "^2.12.7"
+    "recharts": "^2.12.7",
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@cloudflare/workers-types": "^4.20260529.1",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@types/uuid": "^9.0.8",
-    "@cloudflare/workers-types": "^4.20241022.0",
-    "tailwindcss": "^3.4.1",
-    "postcss": "^8",
     "autoprefixer": "^10",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5",
     "wrangler": "^3.60.0"
   }
 }
