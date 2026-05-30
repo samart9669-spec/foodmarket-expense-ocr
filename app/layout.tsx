@@ -1,17 +1,13 @@
 import type { Metadata } from 'next'
 import './globals.css'
-import Sidebar from '@/components/Sidebar'
+import ClientLayout from '@/components/ClientLayout'
 
 export const metadata: Metadata = {
   title: 'ระบบจัดการเงินเดือน - ตลาดอาหาร',
   description: 'ระบบจัดการเงินเดือนรายวันสำหรับธุรกิจตลาดอาหาร',
 }
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="th">
       <head>
@@ -21,12 +17,7 @@ export default function RootLayout({
         />
       </head>
       <body className="font-thai bg-gray-50 min-h-screen">
-        <div className="flex min-h-screen">
-          <Sidebar />
-          <main className="flex-1 ml-64 p-6 min-h-screen">
-            {children}
-          </main>
-        </div>
+        <ClientLayout>{children}</ClientLayout>
       </body>
     </html>
   )
