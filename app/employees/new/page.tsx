@@ -18,6 +18,7 @@ export default function NewEmployeePage() {
   const streamRef = useRef<MediaStream | null>(null)
   const stableCountRef = useRef(0)
   const detectionActiveRef = useRef(true)
+  const attemptsRef = useRef(0)
 
   const [form, setForm] = useState({
     name: '',
@@ -38,7 +39,9 @@ export default function NewEmployeePage() {
   const [faceapiLoaded, setFaceapiLoaded] = useState(false)
   const [modelsLoaded, setModelsLoaded] = useState(false)
   const [faceInFrame, setFaceInFrame] = useState(false)
-  const [progress, setProgress] = useState(0) // 0-3
+  const [progress, setProgress] = useState(0) // 0-2
+  const [attempts, setAttempts] = useState(0)
+  const [forceCapturing, setForceCapturing] = useState(false)
 
   const [qrCode, setQrCode] = useState('')
 
@@ -78,11 +81,15 @@ export default function NewEmployeePage() {
   const startCamera = async () => {
     setError('')
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } }
+      })
       streamRef.current = stream
       stableCountRef.current = 0
+      attemptsRef.current = 0
       detectionActiveRef.current = true
       setProgress(0)
+      setAttempts(0)
       setFaceInFrame(false)
       setCameraOn(true)
     } catch {
@@ -121,19 +128,21 @@ export default function NewEmployeePage() {
 
       try {
         const detection = await window.faceapi
-          .detectSingleFace(video, new window.faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 }))
+          .detectSingleFace(video, new window.faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.3 }))
           .withFaceLandmarks()
           .withFaceDescriptor()
 
         if (!detectionActiveRef.current) return
+
+        attemptsRef.current += 1
+        setAttempts(attemptsRef.current)
 
         if (detection && detection.descriptor) {
           stableCountRef.current += 1
           setFaceInFrame(true)
           setProgress(stableCountRef.current)
 
-          if (stableCountRef.current >= 3) {
-            // Auto-capture
+          if (stableCountRef.current >= 2) {
             detectionActiveRef.current = false
             setFaceDescriptor(Array.from(detection.descriptor))
             setFaceCaptured(true)
@@ -146,11 +155,11 @@ export default function NewEmployeePage() {
           setProgress(0)
         }
       } catch {
-        // Ignore detection errors
+        // Detection error - ignore and continue
       }
 
       if (detectionActiveRef.current) {
-        timer = setTimeout(detect, 500)
+        timer = setTimeout(detect, 600)
       }
     }
 
@@ -159,6 +168,34 @@ export default function NewEmployeePage() {
       if (timer) clearTimeout(timer)
     }
   }, [cameraOn, modelsLoaded])
+
+  const forceCapture = async () => {
+    if (!videoRef.current || !modelsLoaded || forceCapturing) return
+    setForceCapturing(true)
+    detectionActiveRef.current = false
+    try {
+      const detection = await window.faceapi
+        .detectSingleFace(videoRef.current, new window.faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.2 }))
+        .withFaceLandmarks()
+        .withFaceDescriptor()
+
+      if (detection && detection.descriptor) {
+        setFaceDescriptor(Array.from(detection.descriptor))
+        setFaceCaptured(true)
+        stopCamera()
+      } else {
+        alert('ไม่พบใบหน้าในกล้อง ลองขยับตำแหน่งหรือเพิ่มแสง แล้วกดบังคับอีกครั้ง')
+        detectionActiveRef.current = true
+        // Re-trigger detection loop
+        stableCountRef.current = 0
+      }
+    } catch {
+      alert('เกิดข้อผิดพลาดในการจับภาพ')
+      detectionActiveRef.current = true
+    } finally {
+      setForceCapturing(false)
+    }
+  }
 
   const generateQR = () => {
     const code = `EMP-${Date.now().toString(36).toUpperCase()}`
@@ -206,11 +243,11 @@ export default function NewEmployeePage() {
   const frameColor = !modelsLoaded ? 'border-gray-400' : faceInFrame ? 'border-green-400' : 'border-yellow-400'
   const statusText = !modelsLoaded
     ? 'กำลังโหลดโมเดล...'
-    : progress >= 3
+    : progress >= 2
       ? '✓ บันทึกสำเร็จ!'
       : faceInFrame
-        ? `กำลังจับภาพ... (${progress}/3) อย่าขยับ`
-        : 'วางใบหน้าให้อยู่กลางกรอบ'
+        ? `กำลังจับ... (${progress}/2) อย่าขยับ`
+        : `วางใบหน้าให้อยู่ในกรอบ${attempts > 0 ? ` (ตรวจแล้ว ${attempts} รอบ)` : ''}`
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -377,7 +414,7 @@ export default function NewEmployeePage() {
                     {/* Progress indicator */}
                     {faceInFrame && progress > 0 && (
                       <div className="absolute top-4 left-1/2 -translate-x-1/2 flex gap-1.5">
-                        {[1, 2, 3].map((i) => (
+                        {[1, 2].map((i) => (
                           <div
                             key={i}
                             className={`w-3 h-3 rounded-full transition-colors ${
@@ -389,8 +426,8 @@ export default function NewEmployeePage() {
                     )}
 
                     {/* Status overlay */}
-                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-black bg-opacity-70 rounded-full">
-                      <p className={`text-sm font-medium ${faceInFrame ? 'text-green-300' : 'text-white'}`}>
+                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-black bg-opacity-70 rounded-full max-w-[90%]">
+                      <p className={`text-sm font-medium text-center ${faceInFrame ? 'text-green-300' : 'text-white'}`}>
                         {statusText}
                       </p>
                     </div>
@@ -405,9 +442,22 @@ export default function NewEmployeePage() {
                     )}
                   </div>
 
-                  <button type="button" onClick={stopCamera} className="btn-secondary w-full">
-                    ยกเลิก
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={forceCapture}
+                      disabled={!modelsLoaded || forceCapturing}
+                      className="flex-1 btn-primary disabled:opacity-50"
+                    >
+                      {forceCapturing ? 'กำลังจับภาพ...' : 'จับภาพตอนนี้ (บังคับ)'}
+                    </button>
+                    <button type="button" onClick={stopCamera} className="btn-secondary">
+                      ยกเลิก
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 text-center">
+                    หากระบบจับภาพอัตโนมัติไม่ได้ ให้กดปุ่ม จับภาพตอนนี้
+                  </p>
                 </div>
               )}
             </>
