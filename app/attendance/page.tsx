@@ -60,7 +60,8 @@ export default function AttendancePage() {
     setLoading(true)
     try {
       const res = await fetch(`/api/attendance?date=${date}`)
-      const data = await res.json() as any
+      const res = await fetch(`/api/attendance?date=${date}`);
+      const data = await res.json() as { attendance: any[] }; // <--- ระบุว่าข้างในมี attendance เป็น Array
       setRecords(data.attendance || [])
     } finally {
       setLoading(false)
