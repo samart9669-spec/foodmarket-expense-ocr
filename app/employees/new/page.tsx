@@ -104,13 +104,15 @@ export default function NewEmployeePage() {
     if (!videoRef.current || !modelsLoaded) return
     setCaptureLoading(true)
     try {
-      const detection = await window.faceapi
-        .detectSingleFace(videoRef.current, new window.faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
+      const detectPromise = window.faceapi
+        .detectSingleFace(videoRef.current, new window.faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 }))
         .withFaceLandmarks()
         .withFaceDescriptor()
+      const timeoutPromise = new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 10000))
+      const detection = await Promise.race([detectPromise, timeoutPromise]) as any
 
       if (!detection) {
-        alert('ไม่พบใบหน้าในกล้อง กรุณาจัดตำแหน่งใบหน้าให้ชัดเจน')
+        alert('ไม่พบใบหน้าในกล้อง กรุณาจัดตำแหน่งใบหน้าให้อยู่กลางจอ มองตรงไปที่กล้อง แสงสว่างพอ และลองใหม่')
         return
       }
 
@@ -332,6 +334,7 @@ export default function NewEmployeePage() {
                       </div>
                     )}
                   </div>
+                  <p className="text-xs text-gray-500 text-center">จัดใบหน้าให้อยู่กลางจอ ห่างจากกล้องประมาณ 30-50 ซม. มองตรงไปที่กล้อง แล้วกด “จับภาพ”</p>
                   <div className="flex gap-2">
                     <button
                       type="button"
@@ -339,7 +342,7 @@ export default function NewEmployeePage() {
                       disabled={captureLoading || !modelsLoaded}
                       className="flex-1 btn-primary disabled:opacity-50"
                     >
-                      {captureLoading ? 'กำลังจับภาพ...' : 'จับภาพใบหน้า'}
+                      {captureLoading ? 'กำลังจับภาพ (รอสักครู่)...' : 'จับภาพใบหน้า'}
                     </button>
                     <button type="button" onClick={stopCamera} className="btn-secondary">
                       ยกเลิก
