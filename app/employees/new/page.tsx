@@ -16,6 +16,8 @@ export default function NewEmployeePage() {
   const router = useRouter()
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const stableCountRef = useRef(0)
+  const detectionActiveRef = useRef(true)
 
   const [form, setForm] = useState({
     name: '',
@@ -35,7 +37,8 @@ export default function NewEmployeePage() {
   const [faceCaptured, setFaceCaptured] = useState(false)
   const [faceapiLoaded, setFaceapiLoaded] = useState(false)
   const [modelsLoaded, setModelsLoaded] = useState(false)
-  const [captureLoading, setCaptureLoading] = useState(false)
+  const [faceInFrame, setFaceInFrame] = useState(false)
+  const [progress, setProgress] = useState(0) // 0-3
 
   const [qrCode, setQrCode] = useState('')
 
@@ -77,6 +80,10 @@ export default function NewEmployeePage() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
       streamRef.current = stream
+      stableCountRef.current = 0
+      detectionActiveRef.current = true
+      setProgress(0)
+      setFaceInFrame(false)
       setCameraOn(true)
     } catch {
       setError('ไม่สามารถเปิดกล้องได้ กรุณาอนุญาตการใช้กล้องและลองใหม่')
@@ -87,12 +94,11 @@ export default function NewEmployeePage() {
     if (!cameraOn || !videoRef.current || !streamRef.current) return
     const video = videoRef.current
     video.srcObject = streamRef.current
-    video.play().catch(() => {
-      // iOS Safari autoplay quirk - video will still display
-    })
+    video.play().catch(() => {})
   }, [cameraOn])
 
   const stopCamera = () => {
+    detectionActiveRef.current = false
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop())
       streamRef.current = null
@@ -100,31 +106,59 @@ export default function NewEmployeePage() {
     setCameraOn(false)
   }
 
-  const captureFace = async () => {
-    if (!videoRef.current || !modelsLoaded) return
-    setCaptureLoading(true)
-    try {
-      const detectPromise = window.faceapi
-        .detectSingleFace(videoRef.current, new window.faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 }))
-        .withFaceLandmarks()
-        .withFaceDescriptor()
-      const timeoutPromise = new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 10000))
-      const detection = await Promise.race([detectPromise, timeoutPromise]) as any
+  // Continuous auto-detect loop
+  useEffect(() => {
+    if (!cameraOn || !modelsLoaded) return
+    let timer: ReturnType<typeof setTimeout> | null = null
 
-      if (!detection) {
-        alert('ไม่พบใบหน้าในกล้อง กรุณาจัดตำแหน่งใบหน้าให้อยู่กลางจอ มองตรงไปที่กล้อง แสงสว่างพอ และลองใหม่')
+    const detect = async () => {
+      if (!detectionActiveRef.current) return
+      const video = videoRef.current
+      if (!video || video.readyState !== 4) {
+        timer = setTimeout(detect, 300)
         return
       }
 
-      setFaceDescriptor(Array.from(detection.descriptor))
-      setFaceCaptured(true)
-      stopCamera()
-    } catch {
-      alert('เกิดข้อผิดพลาดในการจับภาพใบหน้า')
-    } finally {
-      setCaptureLoading(false)
+      try {
+        const detection = await window.faceapi
+          .detectSingleFace(video, new window.faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 }))
+          .withFaceLandmarks()
+          .withFaceDescriptor()
+
+        if (!detectionActiveRef.current) return
+
+        if (detection && detection.descriptor) {
+          stableCountRef.current += 1
+          setFaceInFrame(true)
+          setProgress(stableCountRef.current)
+
+          if (stableCountRef.current >= 3) {
+            // Auto-capture
+            detectionActiveRef.current = false
+            setFaceDescriptor(Array.from(detection.descriptor))
+            setFaceCaptured(true)
+            stopCamera()
+            return
+          }
+        } else {
+          stableCountRef.current = 0
+          setFaceInFrame(false)
+          setProgress(0)
+        }
+      } catch {
+        // Ignore detection errors
+      }
+
+      if (detectionActiveRef.current) {
+        timer = setTimeout(detect, 500)
+      }
     }
-  }
+
+    detect()
+    return () => {
+      if (timer) clearTimeout(timer)
+    }
+  }, [cameraOn, modelsLoaded])
 
   const generateQR = () => {
     const code = `EMP-${Date.now().toString(36).toUpperCase()}`
@@ -168,6 +202,15 @@ export default function NewEmployeePage() {
       setLoading(false)
     }
   }
+
+  const frameColor = !modelsLoaded ? 'border-gray-400' : faceInFrame ? 'border-green-400' : 'border-yellow-400'
+  const statusText = !modelsLoaded
+    ? 'กำลังโหลดโมเดล...'
+    : progress >= 3
+      ? '✓ บันทึกสำเร็จ!'
+      : faceInFrame
+        ? `กำลังจับภาพ... (${progress}/3) อย่าขยับ`
+        : 'วางใบหน้าให้อยู่กลางกรอบ'
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -312,42 +355,59 @@ export default function NewEmployeePage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                   <span className="font-medium">เปิดกล้องเพื่อลงทะเบียนใบหน้า</span>
-                  <span className="text-xs">(ไม่บังคับ)</span>
+                  <span className="text-xs">(ไม่บังคับ) - ระบบจะจับภาพอัตโนมัติ</span>
                 </button>
               ) : (
                 <div className="space-y-3">
-                  <div className="relative rounded-xl overflow-hidden bg-black">
+                  <div className="relative rounded-xl overflow-hidden bg-black aspect-square max-h-96 mx-auto">
                     <video
                       ref={videoRef}
                       autoPlay
                       muted
                       playsInline
-                      className="w-full max-h-64 object-cover"
+                      className="w-full h-full object-cover"
                       style={{ transform: 'scaleX(-1)' }}
                     />
+
+                    {/* Oval face guide */}
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className={`w-3/4 h-5/6 border-4 ${frameColor} rounded-[50%] transition-colors duration-200 shadow-[0_0_0_9999px_rgba(0,0,0,0.4)]`} />
+                    </div>
+
+                    {/* Progress indicator */}
+                    {faceInFrame && progress > 0 && (
+                      <div className="absolute top-4 left-1/2 -translate-x-1/2 flex gap-1.5">
+                        {[1, 2, 3].map((i) => (
+                          <div
+                            key={i}
+                            className={`w-3 h-3 rounded-full transition-colors ${
+                              progress >= i ? 'bg-green-400' : 'bg-white bg-opacity-40'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Status overlay */}
+                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-black bg-opacity-70 rounded-full">
+                      <p className={`text-sm font-medium ${faceInFrame ? 'text-green-300' : 'text-white'}`}>
+                        {statusText}
+                      </p>
+                    </div>
+
                     {!modelsLoaded && (
                       <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-60">
                         <div className="text-center text-white">
-                          <div className="animate-spin w-6 h-6 border-2 border-white border-t-transparent rounded-full mx-auto mb-2"></div>
+                          <div className="animate-spin w-8 h-8 border-2 border-white border-t-transparent rounded-full mx-auto mb-2"></div>
                           <p className="text-sm">กำลังโหลดโมเดล...</p>
                         </div>
                       </div>
                     )}
                   </div>
-                  <p className="text-xs text-gray-500 text-center">จัดใบหน้าให้อยู่กลางจอ ห่างจากกล้องประมาณ 30-50 ซม. มองตรงไปที่กล้อง แล้วกด “จับภาพ”</p>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={captureFace}
-                      disabled={captureLoading || !modelsLoaded}
-                      className="flex-1 btn-primary disabled:opacity-50"
-                    >
-                      {captureLoading ? 'กำลังจับภาพ (รอสักครู่)...' : 'จับภาพใบหน้า'}
-                    </button>
-                    <button type="button" onClick={stopCamera} className="btn-secondary">
-                      ยกเลิก
-                    </button>
-                  </div>
+
+                  <button type="button" onClick={stopCamera} className="btn-secondary w-full">
+                    ยกเลิก
+                  </button>
                 </div>
               )}
             </>
