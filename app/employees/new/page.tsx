@@ -1,30 +1,10 @@
 'use client'
 
+export const runtime = 'edge'
+
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 
-interface FaceApiType {
-  nets: {
-    tinyFaceDetector: { loadFromUri: (url: string) => Promise<void> }
-    faceLandmark68TinyNet: { loadFromUri: (url: string) => Promise<void> }
-    faceRecognitionNet: { loadFromUri: (url: string) => Promise<void> }
-  }
-  detectSingleFace: (
-    input: HTMLVideoElement | HTMLCanvasElement,
-    options: unknown
-  ) => {
-    withFaceLandmarks: () => {
-      withFaceDescriptor: () => Promise<{ descriptor: Float32Array } | undefined>
-    }
-  }
-  TinyFaceDetectorOptions: new (opts: { inputSize: number; scoreThreshold: number }) => unknown
-}
-
-declare global {
-  interface Window {
-    faceapi: FaceApiType
-  }
-}
 
 interface SalesPoint {
   id: string
@@ -63,7 +43,7 @@ export default function NewEmployeePage() {
   useEffect(() => {
     fetch('/api/sales-points')
       .then((r) => r.json())
-      .then((d) => setSalesPoints(d.salesPoints || []))
+      .then((d: any) => setSalesPoints(d.salesPoints || []))
 
     // Load face-api
     if (window.faceapi) {
@@ -166,7 +146,7 @@ export default function NewEmployeePage() {
         body: JSON.stringify(payload),
       })
 
-      const data = await res.json()
+      const data = await res.json() as any
       if (!res.ok) {
         setError(data.error || 'เกิดข้อผิดพลาด')
         return
@@ -188,7 +168,6 @@ export default function NewEmployeePage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Basic Info */}
         <div className="card space-y-4">
           <h2 className="font-semibold text-gray-900 pb-2 border-b">ข้อมูลพื้นฐาน</h2>
 
@@ -244,7 +223,6 @@ export default function NewEmployeePage() {
           </div>
         </div>
 
-        {/* Pay Structure */}
         <div className="card space-y-4">
           <h2 className="font-semibold text-gray-900 pb-2 border-b">โครงสร้างรายได้</h2>
 
@@ -292,7 +270,6 @@ export default function NewEmployeePage() {
           </div>
         </div>
 
-        {/* Face Enrollment */}
         <div className="card space-y-4">
           <h2 className="font-semibold text-gray-900 pb-2 border-b">ลงทะเบียนใบหน้า (Face ID)</h2>
 
@@ -367,7 +344,6 @@ export default function NewEmployeePage() {
           )}
         </div>
 
-        {/* QR Code */}
         <div className="card space-y-3">
           <h2 className="font-semibold text-gray-900 pb-2 border-b">QR Code สำรอง</h2>
           <div className="flex gap-3">
