@@ -73,22 +73,24 @@ export default function NewEmployeePage() {
   }, [faceapiLoaded])
 
   const startCamera = async () => {
+    setError('')
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
       streamRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        try {
-          await videoRef.current.play()
-        } catch {
-          // iOS Safari autoplay quirk
-        }
-      }
       setCameraOn(true)
     } catch {
-      setError('ไม่สามารถเปิดกล้องได้')
+      setError('ไม่สามารถเปิดกล้องได้ กรุณาอนุญาตการใช้กล้องและลองใหม่')
     }
   }
+
+  useEffect(() => {
+    if (!cameraOn || !videoRef.current || !streamRef.current) return
+    const video = videoRef.current
+    video.srcObject = streamRef.current
+    video.play().catch(() => {
+      // iOS Safari autoplay quirk - video will still display
+    })
+  }, [cameraOn])
 
   const stopCamera = () => {
     if (streamRef.current) {
