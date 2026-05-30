@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 
+const FACEAPI_MODEL_URL = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights'
+
 interface Employee {
   id: string
   name: string
@@ -54,15 +56,14 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
       try {
         setLoadingModels(true)
         const faceapi = window.faceapi
-        const MODEL_URL = '/models'
         await Promise.all([
-          faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-          faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
-          faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+          faceapi.nets.tinyFaceDetector.loadFromUri(FACEAPI_MODEL_URL),
+          faceapi.nets.faceLandmark68TinyNet.loadFromUri(FACEAPI_MODEL_URL),
+          faceapi.nets.faceRecognitionNet.loadFromUri(FACEAPI_MODEL_URL),
         ])
         setModelsLoaded(true)
       } catch {
-        onError?.('ไม่สามารถโหลดโมเดลได้ กรุณาตรวจสอบโฟลเดอร์ /public/models/')
+        onError?.('ไม่สามารถโหลดโมเดล face-api จาก CDN ได้')
       } finally {
         setLoadingModels(false)
       }
@@ -186,7 +187,7 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
           <p className="text-white text-sm">
             {!faceapiLoaded ? 'กำลังโหลด face-api.js...' : 'กำลังโหลดโมเดลจดจำใบหน้า...'}
           </p>
-          <p className="text-gray-300 text-xs mt-2">กรุณารอสักครู่</p>
+          <p className="text-gray-300 text-xs mt-2">โหลดจาก CDN อาจใช้เวลา 30-60 วินาทีครั้งแรก</p>
         </div>
       )}
 
@@ -195,11 +196,8 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
           <svg className="w-10 h-10 text-yellow-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
-          <p className="text-white font-medium">ไม่พบโมเดลจดจำใบหน้า</p>
-          <p className="text-gray-300 text-xs mt-2 text-center px-4">
-            กรุณาดาวน์โหลดโมเดลไปยัง /public/models/<br />
-            (ดูคำแนะนำใน /public/models/README.md)
-          </p>
+          <p className="text-white font-medium">ไม่สามารถโหลดโมเดล face-api จาก CDN ได้</p>
+          <p className="text-gray-300 text-xs mt-2 text-center px-4">กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต และลองรีเฟรชหน้าอีกครั้ง</p>
         </div>
       )}
 

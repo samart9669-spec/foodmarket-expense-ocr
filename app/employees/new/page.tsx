@@ -5,6 +5,7 @@ export const runtime = 'edge'
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 
+const FACEAPI_MODEL_URL = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights'
 
 interface SalesPoint {
   id: string
@@ -29,7 +30,6 @@ export default function NewEmployeePage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  // Face enrollment
   const [cameraOn, setCameraOn] = useState(false)
   const [faceDescriptor, setFaceDescriptor] = useState<number[] | null>(null)
   const [faceCaptured, setFaceCaptured] = useState(false)
@@ -37,7 +37,6 @@ export default function NewEmployeePage() {
   const [modelsLoaded, setModelsLoaded] = useState(false)
   const [captureLoading, setCaptureLoading] = useState(false)
 
-  // Generated QR
   const [qrCode, setQrCode] = useState('')
 
   useEffect(() => {
@@ -45,7 +44,6 @@ export default function NewEmployeePage() {
       .then((r) => r.json())
       .then((d: any) => setSalesPoints(d.salesPoints || []))
 
-    // Load face-api
     if (window.faceapi) {
       setFaceapiLoaded(true)
     } else {
@@ -62,13 +60,13 @@ export default function NewEmployeePage() {
     const load = async () => {
       try {
         await Promise.all([
-          window.faceapi.nets.tinyFaceDetector.loadFromUri('/models'),
-          window.faceapi.nets.faceLandmark68TinyNet.loadFromUri('/models'),
-          window.faceapi.nets.faceRecognitionNet.loadFromUri('/models'),
+          window.faceapi.nets.tinyFaceDetector.loadFromUri(FACEAPI_MODEL_URL),
+          window.faceapi.nets.faceLandmark68TinyNet.loadFromUri(FACEAPI_MODEL_URL),
+          window.faceapi.nets.faceRecognitionNet.loadFromUri(FACEAPI_MODEL_URL),
         ])
         setModelsLoaded(true)
       } catch {
-        // Models not available
+        // Models failed to load from CDN
       }
     }
     load()
