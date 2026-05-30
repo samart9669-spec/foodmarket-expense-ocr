@@ -12,6 +12,15 @@ interface SalesPoint {
   name: string
 }
 
+// Capture current video frame to canvas (works on iOS Safari unlike direct video readback)
+function snapshotCanvas(video: HTMLVideoElement): HTMLCanvasElement {
+  const canvas = document.createElement('canvas')
+  canvas.width = video.videoWidth || 640
+  canvas.height = video.videoHeight || 480
+  canvas.getContext('2d')?.drawImage(video, 0, 0)
+  return canvas
+}
+
 export default function NewEmployeePage() {
   const router = useRouter()
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -39,9 +48,10 @@ export default function NewEmployeePage() {
   const [faceapiLoaded, setFaceapiLoaded] = useState(false)
   const [modelsLoaded, setModelsLoaded] = useState(false)
   const [faceInFrame, setFaceInFrame] = useState(false)
-  const [progress, setProgress] = useState(0) // 0-2
+  const [progress, setProgress] = useState(0)
   const [attempts, setAttempts] = useState(0)
   const [forceCapturing, setForceCapturing] = useState(false)
+  const [loopKey, setLoopKey] = useState(0)
 
   const [qrCode, setQrCode] = useState('')
 
@@ -113,10 +123,11 @@ export default function NewEmployeePage() {
     setCameraOn(false)
   }
 
-  // Continuous auto-detect loop
+  // Continuous auto-detect loop — uses canvas snapshot for iOS Safari compatibility
   useEffect(() => {
     if (!cameraOn || !modelsLoaded) return
     let timer: ReturnType<typeof setTimeout> | null = null
+    detectionActiveRef.current = true
 
     const detect = async () => {
       if (!detectionActiveRef.current) return
@@ -127,8 +138,9 @@ export default function NewEmployeePage() {
       }
 
       try {
+        const frame = snapshotCanvas(video)
         const detection = await window.faceapi
-          .detectSingleFace(video, new window.faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.3 }))
+          .detectSingleFace(frame, new window.faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.3 }))
           .withFaceLandmarks()
           .withFaceDescriptor()
 
@@ -155,7 +167,7 @@ export default function NewEmployeePage() {
           setProgress(0)
         }
       } catch {
-        // Detection error - ignore and continue
+        // Detection error - continue
       }
 
       if (detectionActiveRef.current) {
@@ -167,31 +179,48 @@ export default function NewEmployeePage() {
     return () => {
       if (timer) clearTimeout(timer)
     }
-  }, [cameraOn, modelsLoaded])
+  }, [cameraOn, modelsLoaded, loopKey])
 
   const forceCapture = async () => {
     if (!videoRef.current || !modelsLoaded || forceCapturing) return
     setForceCapturing(true)
     detectionActiveRef.current = false
+
     try {
-      const detection = await window.faceapi
-        .detectSingleFace(videoRef.current, new window.faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.2 }))
+      const video = videoRef.current
+      // Wait for video to have a valid frame
+      if (video.readyState !== 4) {
+        await new Promise<void>((resolve) => {
+          const onReady = () => { video.removeEventListener('canplay', onReady); resolve() }
+          video.addEventListener('canplay', onReady)
+          setTimeout(resolve, 3000)
+        })
+      }
+
+      const frame = snapshotCanvas(video)
+
+      // 15-second timeout so button never stays stuck
+      const detectionPromise = window.faceapi
+        .detectSingleFace(frame, new window.faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.2 }))
         .withFaceLandmarks()
         .withFaceDescriptor()
+
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000))
+      const detection = await Promise.race([detectionPromise, timeoutPromise])
 
       if (detection && detection.descriptor) {
         setFaceDescriptor(Array.from(detection.descriptor))
         setFaceCaptured(true)
         stopCamera()
       } else {
-        alert('ไม่พบใบหน้าในกล้อง ลองขยับตำแหน่งหรือเพิ่มแสง แล้วกดบังคับอีกครั้ง')
-        detectionActiveRef.current = true
-        // Re-trigger detection loop
+        alert('ไม่พบใบหน้าในกล้อง ลองขยับตำแหน่ง เพิ่มแสง แล้วกดอีกครั้ง')
         stableCountRef.current = 0
+        setLoopKey((k) => k + 1) // restart auto-detect loop
       }
     } catch {
       alert('เกิดข้อผิดพลาดในการจับภาพ')
-      detectionActiveRef.current = true
+      stableCountRef.current = 0
+      setLoopKey((k) => k + 1)
     } finally {
       setForceCapturing(false)
     }
@@ -411,7 +440,7 @@ export default function NewEmployeePage() {
                       <div className={`w-3/4 h-5/6 border-4 ${frameColor} rounded-[50%] transition-colors duration-200 shadow-[0_0_0_9999px_rgba(0,0,0,0.4)]`} />
                     </div>
 
-                    {/* Progress indicator */}
+                    {/* Progress dots */}
                     {faceInFrame && progress > 0 && (
                       <div className="absolute top-4 left-1/2 -translate-x-1/2 flex gap-1.5">
                         {[1, 2].map((i) => (
@@ -425,7 +454,7 @@ export default function NewEmployeePage() {
                       </div>
                     )}
 
-                    {/* Status overlay */}
+                    {/* Status text */}
                     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-black bg-opacity-70 rounded-full max-w-[90%]">
                       <p className={`text-sm font-medium text-center ${faceInFrame ? 'text-green-300' : 'text-white'}`}>
                         {statusText}
@@ -449,14 +478,14 @@ export default function NewEmployeePage() {
                       disabled={!modelsLoaded || forceCapturing}
                       className="flex-1 btn-primary disabled:opacity-50"
                     >
-                      {forceCapturing ? 'กำลังจับภาพ...' : 'จับภาพตอนนี้ (บังคับ)'}
+                      {forceCapturing ? 'กำลังจับภาพ...' : 'จับภาพตอนนี้'}
                     </button>
                     <button type="button" onClick={stopCamera} className="btn-secondary">
                       ยกเลิก
                     </button>
                   </div>
                   <p className="text-xs text-gray-500 text-center">
-                    หากระบบจับภาพอัตโนมัติไม่ได้ ให้กดปุ่ม จับภาพตอนนี้
+                    หากกรอบยังเหลืองอยู่ ให้กด จับภาพตอนนี้ เพื่อบังคับบันทึก
                   </p>
                 </div>
               )}

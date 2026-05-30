@@ -108,9 +108,15 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
     const faceapi = window.faceapi
     setDetecting(true)
 
+    // Snapshot to canvas first — iOS Safari restricts direct video pixel readback
+    const frame = document.createElement('canvas')
+    frame.width = video.videoWidth || 640
+    frame.height = video.videoHeight || 480
+    frame.getContext('2d')?.drawImage(video, 0, 0)
+
     try {
       const detection = await faceapi
-        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
+        .detectSingleFace(frame, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
         .withFaceLandmarks()
         .withFaceDescriptor()
 
