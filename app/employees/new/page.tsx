@@ -5,7 +5,7 @@ export const runtime = 'edge'
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 
-const FACEAPI_MODEL_URL = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights'
+const FACEAPI_MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights'
 
 interface SalesPoint {
   id: string
