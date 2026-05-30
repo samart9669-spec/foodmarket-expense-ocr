@@ -81,6 +81,11 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
         streamRef.current = stream
         if (videoRef.current) {
           videoRef.current.srcObject = stream
+          try {
+            await videoRef.current.play()
+          } catch {
+            // iOS Safari may throw on play() but autoplay still works
+          }
         }
       } catch {
         setCameraError('ไม่สามารถเข้าถึงกล้องได้ กรุณาอนุญาตการใช้กล้อง')

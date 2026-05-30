@@ -76,7 +76,14 @@ export default function NewEmployeePage() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
       streamRef.current = stream
-      if (videoRef.current) videoRef.current.srcObject = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        try {
+          await videoRef.current.play()
+        } catch {
+          // iOS Safari autoplay quirk
+        }
+      }
       setCameraOn(true)
     } catch {
       setError('ไม่สามารถเปิดกล้องได้')
