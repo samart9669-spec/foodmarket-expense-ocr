@@ -10,11 +10,7 @@ export function formatCurrency(amount: number): string {
 
 export function formatDate(dateStr: string): string {
   const date = new Date(dateStr)
-  return date.toLocaleDateString('th-TH', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  })
+  return date.toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
 export function formatTime(timeStr: string): string {
@@ -25,13 +21,7 @@ export function formatTime(timeStr: string): string {
 export function formatDateTime(dateTimeStr: string): string {
   if (!dateTimeStr) return '-'
   const date = new Date(dateTimeStr)
-  return date.toLocaleString('th-TH', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return date.toLocaleString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 export function getTodayString(): string {
@@ -54,8 +44,7 @@ export function calculateHoursWorked(checkIn: string, checkOut: string): number 
   if (!checkIn || !checkOut) return 0
   const inTime = new Date(checkIn)
   const outTime = new Date(checkOut)
-  const diffMs = outTime.getTime() - inTime.getTime()
-  return Math.max(0, diffMs / (1000 * 60 * 60))
+  return Math.max(0, (outTime.getTime() - inTime.getTime()) / 3600000)
 }
 
 export function calculateOTHours(totalHours: number, regularHours: number = 8): number {
@@ -75,49 +64,24 @@ export interface PayrollCalculation {
 }
 
 export function calculatePayroll(
-  attendanceRecords: Array<{
-    regular_hours: number
-    ot_hours: number
-    status: string
-  }>,
+  attendanceRecords: Array<{ regular_hours: number; ot_hours: number; status: string }>,
   salesRecords: Array<{ amount: number }>,
-  employee: {
-    daily_rate: number
-    ot_rate: number
-    commission_rate: number
-  },
+  employee: { daily_rate: number; ot_rate: number; commission_rate: number },
   bonus: number = 0,
   deductions: number = 0
 ): PayrollCalculation {
-  const days_worked = attendanceRecords.filter(
-    (a) => a.status === 'present' || a.status === 'late' || a.status === 'half'
-  ).length
-
+  const days_worked = attendanceRecords.filter((a) => a.status === 'present' || a.status === 'late' || a.status === 'half').length
   const day_rate_total = attendanceRecords.reduce((sum, a) => {
     if (a.status === 'half') return sum + employee.daily_rate * 0.5
     if (a.status === 'present' || a.status === 'late') return sum + employee.daily_rate
     return sum
   }, 0)
-
   const ot_hours_total = attendanceRecords.reduce((sum, a) => sum + (a.ot_hours || 0), 0)
   const ot_total = ot_hours_total * employee.ot_rate
-
   const sales_total = salesRecords.reduce((sum, s) => sum + s.amount, 0)
   const commission_total = sales_total * ((employee.commission_rate || 0) / 100)
-
   const total_pay = day_rate_total + ot_total + commission_total + bonus - deductions
-
-  return {
-    days_worked,
-    day_rate_total,
-    ot_hours_total,
-    ot_total,
-    sales_total,
-    commission_total,
-    bonus,
-    deductions,
-    total_pay,
-  }
+  return { days_worked, day_rate_total, ot_hours_total, ot_total, sales_total, commission_total, bonus, deductions, total_pay }
 }
 
 export function getEmployeeTypeLabel(type: string): string {
@@ -125,20 +89,11 @@ export function getEmployeeTypeLabel(type: string): string {
 }
 
 export function getStatusLabel(status: string): string {
-  const labels: Record<string, string> = {
-    present: 'มาทำงาน',
-    absent: 'ขาดงาน',
-    late: 'มาสาย',
-    half: 'ครึ่งวัน',
-  }
+  const labels: Record<string, string> = { present: 'มาทำงาน', absent: 'ขาดงาน', late: 'มาสาย', half: 'ครึ่งวัน' }
   return labels[status] || status
 }
 
 export function getPayrollStatusLabel(status: string): string {
-  const labels: Record<string, string> = {
-    pending: 'รอดำเนินการ',
-    approved: 'อนุมัติแล้ว',
-    paid: 'จ่ายแล้ว',
-  }
+  const labels: Record<string, string> = { pending: 'รอดำเนินการ', approved: 'อนุมัติแล้ว', paid: 'จ่ายแล้ว' }
   return labels[status] || status
 }
