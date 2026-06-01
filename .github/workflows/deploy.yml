@@ -1,0 +1,48 @@
+name: Deploy to Cloudflare Pages
+
+on:
+  push:
+    branches:
+      - claude/daily-payroll-system-ZEsNj
+      - main
+
+env:
+  CLOUDFLARE_ACCOUNT_ID: 4c66457e2156320d009a06c9fba2f4d8
+  CF_PROJECT: foodmarket-payroll
+  D1_DB_ID: f8f2e7df-40b0-4577-8e88-c565f08aafb0
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Build for Cloudflare Pages
+        run: npm_config_legacy_peer_deps=true npx @cloudflare/next-on-pages
+
+      - name: Create Pages project (idempotent)
+        run: npx wrangler pages project create $CF_PROJECT --production-branch=main || true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Bind D1 database to Pages project
+        run: |
+          curl -fsS -X PATCH \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${CF_PROJECT}" \
+            -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            --data "{\"deployment_configs\":{\"production\":{\"d1_databases\":{\"DB\":{\"id\":\"${D1_DB_ID}\"}},\"compatibility_flags\":[\"nodejs_compat\"],\"compatibility_date\":\"2024-09-23\"},\"preview\":{\"d1_databases\":{\"DB\":{\"id\":\"${D1_DB_ID}\"}},\"compatibility_flags\":[\"nodejs_compat\"],\"compatibility_date\":\"2024-09-23\"}}}" | tee /tmp/bind.json
+          jq -e '.success == true' /tmp/bind.json
+
+      - name: Deploy to Cloudflare Pages
+        run: npx wrangler pages deploy .vercel/output/static --project-name=$CF_PROJECT --branch=main
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
