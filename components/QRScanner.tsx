@@ -32,18 +32,9 @@ export default function QRScanner({ onScan, isActive = true }: QRScannerProps) {
       const scanner = new Html5Qrcode('qr-video-element')
       scannerRef.current = scanner
 
-      const cameras = await Html5Qrcode.getCameras()
-      if (!cameras || cameras.length === 0) {
-        setError('ไม่พบกล้องในอุปกรณ์นี้')
-        setStatus('error')
-        return
-      }
-
-      // prefer back/environment camera
-      const cam = cameras.find(c => /back|rear|environment/i.test(c.label)) ?? cameras[cameras.length - 1]
-
+      // Use facingMode directly — avoids getCameras() which fails on iOS before permission
       await scanner.start(
-        cam.id,
+        { facingMode: 'environment' },
         { fps: 10, qrbox: { width: 220, height: 220 }, aspectRatio: 1.0 },
         (decoded: string) => {
           if (lastScanRef.current === decoded) return
