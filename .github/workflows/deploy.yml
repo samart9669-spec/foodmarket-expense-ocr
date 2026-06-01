@@ -54,7 +54,7 @@ jobs:
             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${CF_PROJECT}" \
             -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
             -H "Content-Type: application/json" \
-            --data "{\"deployment_configs\":{\"production\":{\"d1_databases\":{\"DB\":{\"id\":\"${D1_DB_ID}\"}},\"compatibility_flags\":[\"nodejs_compat\"],\"compatibility_date\":\"2024-09-23\"},\"preview\":{\"d1_databases\":{\"DB\":{\"id\":\"${D1_DB_ID}\"}},\"compatibility_flags\":[\"nodejs_compat\"],\"compatibility_date\":\"2024-09-23\"}}}" | tee /tmp/bind.json
+            --data "{\"deployment_configs\":{\"production\":{\"d1_databases\":{\"DB\":{\"id\":\"${D1_DB_ID}\"}},\"ai_bindings\":{\"AI\":{}},\"compatibility_flags\":[\"nodejs_compat\"],\"compatibility_date\":\"2024-09-23\"},\"preview\":{\"d1_databases\":{\"DB\":{\"id\":\"${D1_DB_ID}\"}},\"ai_bindings\":{\"AI\":{}},\"compatibility_flags\":[\"nodejs_compat\"],\"compatibility_date\":\"2024-09-23\"}}}" | tee /tmp/bind.json
           jq -e '.success == true' /tmp/bind.json
 
       - name: Deploy to Cloudflare Pages
