@@ -25,6 +25,21 @@ jobs:
       - name: Install dependencies
         run: npm install --legacy-peer-deps
 
+      - name: Download face-api.js model weights locally
+        run: |
+          mkdir -p public/models
+          BASE="https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights"
+          for f in \
+            "tiny_face_detector_model-weights_manifest.json" \
+            "tiny_face_detector_model-shard1" \
+            "face_landmark_68_tiny_model-weights_manifest.json" \
+            "face_landmark_68_tiny_model-shard1" \
+            "face_recognition_model-weights_manifest.json" \
+            "face_recognition_model-shard1"; do
+            curl -fsSL "$BASE/$f" -o "public/models/$f"
+            echo "Downloaded $f"
+          done
+
       - name: Build for Cloudflare Pages
         run: npm_config_legacy_peer_deps=true npx @cloudflare/next-on-pages
 
