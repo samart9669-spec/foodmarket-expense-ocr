@@ -5,9 +5,9 @@ import Sidebar from './Sidebar'
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const isKiosk = pathname?.startsWith('/kiosk')
+  const isNoSidebar = pathname?.startsWith('/kiosk') || pathname?.startsWith('/employee')
 
-  if (isKiosk) {
+  if (isNoSidebar) {
     return <>{children}</>
   }
 
