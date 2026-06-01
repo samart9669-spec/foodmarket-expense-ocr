@@ -7,3 +7,6 @@ pages_build_output_dir = ".vercel/output/static"
 binding = "DB"
 database_name = "payroll-db"
 database_id = "f8f2e7df-40b0-4577-8e88-c565f08aafb0"
+
+[ai]
+binding = "AI"

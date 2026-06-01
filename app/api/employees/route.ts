@@ -51,6 +51,7 @@ export async function POST(request: NextRequest) {
       ot_rate?: number
       commission_rate?: number
       face_descriptor?: string
+      face_photo?: string
       qr_code?: string
       phone?: string
     }
@@ -63,6 +64,7 @@ export async function POST(request: NextRequest) {
       ot_rate = 50,
       commission_rate = 0,
       face_descriptor,
+      face_photo,
       qr_code,
       phone,
     } = body
@@ -79,11 +81,11 @@ export async function POST(request: NextRequest) {
     const generatedQR = qr_code || `EMP-${id.substring(0, 8).toUpperCase()}`
 
     await db.prepare(`
-      INSERT INTO employees (id, name, employee_type, sales_point_id, daily_rate, ot_rate, commission_rate, face_descriptor, qr_code, phone, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      INSERT INTO employees (id, name, employee_type, sales_point_id, daily_rate, ot_rate, commission_rate, face_descriptor, face_photo, qr_code, phone, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
     `).bind(
       id, name, employee_type, sales_point_id || null, daily_rate, ot_rate, commission_rate,
-      face_descriptor || null, generatedQR, phone || null
+      face_descriptor || null, face_photo || null, generatedQR, phone || null
     ).run()
 
     const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(id).first()
