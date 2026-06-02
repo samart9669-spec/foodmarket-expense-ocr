@@ -4,6 +4,7 @@ export const runtime = 'edge'
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { formatThaiTime } from '@/lib/utils'
 
 interface Employee { id: string; name: string }
 
@@ -89,7 +90,7 @@ export default function EmployeeHistoryPage() {
                         <div className="flex-1">
                           <p className="text-sm font-medium">{a.date}</p>
                           <p className="text-xs text-gray-400">
-                            เข้า {a.check_in?.slice(11, 16) || '—'} · ออก {a.check_out?.slice(11, 16) || '—'}
+                            เข้า {formatThaiTime(a.check_in)} · ออก {formatThaiTime(a.check_out)}
                           </p>
                         </div>
                         <span className={`text-xs px-2 py-1 rounded-full ${

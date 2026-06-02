@@ -4,7 +4,7 @@ export const runtime = 'edge'
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { formatCurrency, getEmployeeTypeLabel, getStatusLabel } from '@/lib/utils'
+import { formatCurrency, formatThaiTime, getEmployeeTypeLabel, getStatusLabel } from '@/lib/utils'
 
 interface DashboardData {
   total_employees: number
@@ -230,10 +230,10 @@ export default function DashboardPage() {
                       </span>
                     </td>
                     <td className="table-cell font-mono text-sm">
-                      {att.check_in ? att.check_in.substring(11, 16) : '-'}
+                      {formatThaiTime(att.check_in)}
                     </td>
                     <td className="table-cell font-mono text-sm">
-                      {att.check_out ? att.check_out.substring(11, 16) : '-'}
+                      {formatThaiTime(att.check_out)}
                     </td>
                     <td className="table-cell">{getStatusBadge(att.status)}</td>
                   </tr>

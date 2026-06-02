@@ -3,7 +3,7 @@
 export const runtime = 'edge'
 
 import { useEffect, useState, useCallback } from 'react'
-import { getTodayString, formatCurrency, getEmployeeTypeLabel } from '@/lib/utils'
+import { getTodayString, formatCurrency, formatThaiTime, getEmployeeTypeLabel } from '@/lib/utils'
 
 interface Sale {
   id: string
@@ -343,7 +343,7 @@ export default function SalesPage() {
                     <td className="table-cell font-semibold text-green-700">{formatCurrency(sale.amount)}</td>
                     <td className="table-cell text-gray-500">{sale.notes || '-'}</td>
                     <td className="table-cell text-gray-500 font-mono text-sm">
-                      {sale.created_at ? sale.created_at.substring(11, 16) : '-'}
+                      {formatThaiTime(sale.created_at)}
                     </td>
                     <td className="table-cell">
                       <button
