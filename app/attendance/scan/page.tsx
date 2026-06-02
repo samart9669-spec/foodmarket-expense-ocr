@@ -31,6 +31,16 @@ interface ScanResult {
   check_in?: string
   check_out?: string
   action?: 'checkin' | 'checkout'
+  total_hours?: number
+}
+
+function thaiDateTime(utcStr: string | null | undefined): { date: string; time: string } | null {
+  if (!utcStr) return null
+  const d = new Date(utcStr.includes('T') ? utcStr : utcStr.replace(' ', 'T') + 'Z')
+  return {
+    date: d.toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'long', year: 'numeric' }),
+    time: d.toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }),
+  }
 }
 
 export default function AttendanceScanPage() {
@@ -73,11 +83,12 @@ export default function AttendanceScanPage() {
         if (res.ok) {
           setScanResult({
             success: true,
-            message: data.message,
+            message: scanMode === 'checkin' ? 'บันทึกเช็คอินเรียบร้อย' : 'บันทึกเช็คเอาต์เรียบร้อย',
             employee_name: data.employee_name,
             employee_type: data.employee_type,
             check_in: data.check_in,
             check_out: data.check_out,
+            total_hours: data.total_hours,
             action: scanMode,
           })
         } else {
@@ -114,7 +125,7 @@ export default function AttendanceScanPage() {
         const data = await res.json() as any
 
         if (res.ok) {
-          setScanResult({ success: true, message: data.message, employee_name: data.employee_name, employee_type: data.employee_type, action: scanMode })
+          setScanResult({ success: true, message: scanMode === 'checkin' ? 'บันทึกเช็คอินเรียบร้อย' : 'บันทึกเช็คเอาต์เรียบร้อย', employee_name: data.employee_name, employee_type: data.employee_type, check_in: data.check_in, check_out: data.check_out, total_hours: data.total_hours, action: scanMode })
         } else {
           setScanResult({ success: false, message: data.error || 'เกิดข้อผิดพลาด', employee_name: employee.name })
         }
@@ -193,21 +204,38 @@ export default function AttendanceScanPage() {
               </div>
             )}
           </div>
-          <p className={`text-xl font-bold ${scanResult.success ? 'text-green-800' : 'text-red-800'}`}>
-            {scanResult.message}
-          </p>
           {scanResult.employee_name && (
-            <p className={`text-lg mt-1 ${scanResult.success ? 'text-green-700' : 'text-red-600'}`}>
+            <p className={`text-xl font-bold mb-0.5 ${scanResult.success ? 'text-green-800' : 'text-red-800'}`}>
               {scanResult.employee_name}
             </p>
           )}
           {scanResult.employee_type && (
-            <span className={`inline-block mt-1 px-3 py-1 rounded-full text-sm font-medium ${
+            <span className={`inline-block mb-2 px-3 py-1 rounded-full text-sm font-medium ${
               scanResult.employee_type === 'kitchen' ? 'bg-green-200 text-green-800' : 'bg-orange-200 text-orange-800'
             }`}>
               {scanResult.employee_type === 'kitchen' ? 'ครัวกลาง' : 'พนักงานขาย'}
             </span>
           )}
+          <p className={`text-base font-semibold ${scanResult.success ? 'text-green-700' : 'text-red-700'}`}>
+            {scanResult.message}
+          </p>
+
+          {/* Recorded timestamp */}
+          {scanResult.success && (() => {
+            const utcStr = scanResult.action === 'checkin' ? scanResult.check_in : scanResult.check_out
+            const dt = thaiDateTime(utcStr)
+            if (!dt) return null
+            return (
+              <div className="my-3 bg-white border border-green-200 rounded-xl py-3 px-6 inline-block w-full">
+                <p className="text-xs text-gray-500 mb-0.5">บันทึกเวลา</p>
+                <p className="text-4xl font-mono font-bold text-gray-900 tracking-wide">{dt.time}</p>
+                <p className="text-sm text-gray-500 mt-0.5">{dt.date}</p>
+                {scanResult.total_hours != null && scanResult.action === 'checkout' && (
+                  <p className="text-sm text-green-700 mt-1 font-medium">รวม {scanResult.total_hours.toFixed(1)} ชั่วโมง</p>
+                )}
+              </div>
+            )
+          })()}
 
           {/* Action buttons — stay until user chooses */}
           <div className="flex gap-3 mt-4 justify-center">

@@ -16,6 +16,15 @@ interface Shift { id: string; name: string; start_time: string; end_time: string
 type GpsState = 'idle' | 'getting' | 'ok' | 'far' | 'no-gps' | 'denied'
 type ScanMode = 'checkin' | 'checkout'
 
+function thaiDateTime(utcStr: string | null | undefined): { date: string; time: string } | null {
+  if (!utcStr) return null
+  const d = new Date(utcStr.includes('T') ? utcStr : utcStr.replace(' ', 'T') + 'Z')
+  return {
+    date: d.toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'long', year: 'numeric' }),
+    time: d.toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }),
+  }
+}
+
 function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371000
   const φ1 = lat1 * Math.PI / 180, φ2 = lat2 * Math.PI / 180
@@ -35,7 +44,7 @@ export default function EmployeeCheckinPage() {
   const [gpsState, setGpsState] = useState<GpsState>('idle')
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null)
   const [gpsDistance, setGpsDistance] = useState<number | null>(null)
-  const [result, setResult] = useState<{ success: boolean; message: string; name?: string } | null>(null)
+  const [result, setResult] = useState<{ success: boolean; message: string; name?: string; recorded?: { date: string; time: string }; hours?: number } | null>(null)
   const [loading, setLoading] = useState(false)
   const posRef = useRef<{ lat: number; lng: number } | null>(null)
 
@@ -98,7 +107,14 @@ export default function EmployeeCheckinPage() {
         }),
       })
       const data = await res.json() as any
-      setResult({ success: res.ok, message: res.ok ? data.message : data.error, name: data.employee_name || employeeName })
+      const utcTime = scanMode === 'checkin' ? data.check_in : data.check_out
+      setResult({
+        success: res.ok,
+        message: res.ok ? (scanMode === 'checkin' ? 'บันทึกเช็คอินเรียบร้อย' : 'บันทึกเช็คเอาต์เรียบร้อย') : data.error,
+        name: data.employee_name || employeeName,
+        recorded: res.ok ? thaiDateTime(utcTime) ?? undefined : undefined,
+        hours: res.ok && scanMode === 'checkout' ? data.total_hours : undefined,
+      })
     } catch {
       setResult({ success: false, message: 'เกิดข้อผิดพลาดในการเชื่อมต่อ' })
     } finally {
@@ -192,7 +208,17 @@ export default function EmployeeCheckinPage() {
               }
             </div>
             {result.name && <p className="text-2xl font-bold mb-1">{result.name}</p>}
-            <p className={`text-lg font-semibold mb-4 ${result.success ? 'text-green-300' : 'text-red-300'}`}>{result.message}</p>
+            <p className={`text-base font-semibold ${result.success ? 'text-green-300' : 'text-red-300'}`}>{result.message}</p>
+            {result.recorded && (
+              <div className="my-3 bg-black bg-opacity-25 rounded-xl py-3 px-4">
+                <p className="text-xs text-gray-400 mb-0.5">บันทึกเวลา</p>
+                <p className="text-4xl font-mono font-bold tracking-wide">{result.recorded.time}</p>
+                <p className="text-sm text-gray-300 mt-0.5">{result.recorded.date}</p>
+                {result.hours != null && (
+                  <p className="text-sm text-green-300 mt-1">รวม {result.hours.toFixed(1)} ชั่วโมง</p>
+                )}
+              </div>
+            )}
             <div className="flex gap-3">
               <button
                 onClick={() => setResult(null)}
