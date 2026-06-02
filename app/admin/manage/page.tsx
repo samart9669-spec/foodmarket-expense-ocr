@@ -114,6 +114,7 @@ export default function AdminManagePage() {
   const [loadingAtt, setLoadingAtt] = useState(false)
   const [editing, setEditing] = useState<Record<string, { check_in: string; check_out: string }>>({})
   const [savingAtt, setSavingAtt] = useState<string | null>(null)
+  const [deletingAtt, setDeletingAtt] = useState<string | null>(null)
 
   useEffect(() => {
     const t = getToken()
@@ -195,6 +196,22 @@ export default function AdminManagePage() {
       alert('บันทึกเวลาสำเร็จ')
     } catch { alert('เกิดข้อผิดพลาด') }
     finally { setSavingAtt(null) }
+  }
+
+  // ── Delete attendance record ────────────────────────────────────
+  const deleteAttendance = async (record: AttendanceRecord) => {
+    if (!token) return
+    if (!confirm(`ลบบันทึกเข้างานของ "${record.employee_name}" วันที่ ${record.date} ?\nการกระทำนี้ไม่สามารถกู้คืนได้`)) return
+    setDeletingAtt(record.id)
+    try {
+      const res = await fetch(`/api/admin/attendance/${record.id}`, {
+        method: 'DELETE',
+        headers: authHeaders(token),
+      })
+      if (!res.ok) { alert('ลบไม่สำเร็จ'); return }
+      setRecords(prev => prev.filter(r => r.id !== record.id))
+    } catch { alert('เกิดข้อผิดพลาด') }
+    finally { setDeletingAtt(null) }
   }
 
   const handleAuth = (tok: string) => setToken(tok)
@@ -338,6 +355,7 @@ export default function AdminManagePage() {
                     <th className="table-header">เวลาเข้า (ไทย)</th>
                     <th className="table-header">เวลาออก (ไทย)</th>
                     <th className="table-header">บันทึก</th>
+                    <th className="table-header text-red-600">ลบ</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -371,9 +389,19 @@ export default function AdminManagePage() {
                       </td>
                       <td className="table-cell">
                         <button onClick={() => saveAttendance(rec)}
-                          disabled={savingAtt === rec.id}
+                          disabled={savingAtt === rec.id || deletingAtt === rec.id}
                           className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg font-medium disabled:opacity-50">
                           {savingAtt === rec.id ? 'บันทึก...' : 'บันทึก'}
+                        </button>
+                      </td>
+                      <td className="table-cell">
+                        <button onClick={() => deleteAttendance(rec)}
+                          disabled={deletingAtt === rec.id || savingAtt === rec.id}
+                          className="flex items-center gap-1 text-red-500 hover:text-red-700 text-xs font-medium disabled:opacity-40">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                          {deletingAtt === rec.id ? '...' : 'ลบ'}
                         </button>
                       </td>
                     </tr>
