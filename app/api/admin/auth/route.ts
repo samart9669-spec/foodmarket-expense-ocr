@@ -1,15 +1,17 @@
 import { NextRequest } from 'next/server'
-import { makeAdminToken, isAdminAuthorized } from '@/lib/admin-auth'
+import { verifyCredentials, isAdminAuthorized } from '@/lib/admin-auth'
 
 export const runtime = 'edge'
 
 export async function POST(request: NextRequest) {
   try {
-    const { password } = await request.json() as { password: string }
-    const token = makeAdminToken()
-    // Verify: re-encode password and compare
-    if (btoa(password) !== token) {
-      return Response.json({ error: 'รหัสผ่านไม่ถูกต้อง' }, { status: 401 })
+    const { username, password } = await request.json() as { username: string; password: string }
+    if (!username || !password) {
+      return Response.json({ error: 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน' }, { status: 400 })
+    }
+    const token = verifyCredentials(username, password)
+    if (!token) {
+      return Response.json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' }, { status: 401 })
     }
     return Response.json({ token })
   } catch {
@@ -17,7 +19,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Verify token (for client to check if token is still valid)
 export async function GET(request: NextRequest) {
   if (!isAdminAuthorized(request)) {
     return Response.json({ valid: false }, { status: 401 })
