@@ -3,7 +3,7 @@
 export const runtime = 'edge'
 
 import { useEffect, useState, useCallback } from 'react'
-import { getTodayString, formatCurrency, getEmployeeTypeLabel, getStatusLabel } from '@/lib/utils'
+import { getTodayString, formatCurrency, formatThaiTime, getEmployeeTypeLabel, getStatusLabel } from '@/lib/utils'
 import EmployeeTypeTag from '@/components/EmployeeTypeTag'
 
 interface AttendanceRecord {
@@ -130,8 +130,8 @@ export default function AttendancePage() {
       r.employee_name,
       getEmployeeTypeLabel(r.employee_type),
       r.date,
-      r.check_in ? r.check_in.substring(11, 16) : '-',
-      r.check_out ? r.check_out.substring(11, 16) : '-',
+      formatThaiTime(r.check_in),
+      formatThaiTime(r.check_out),
       r.regular_hours?.toFixed(2) || '0',
       r.ot_hours?.toFixed(2) || '0',
       getStatusLabel(r.status),
@@ -344,13 +344,13 @@ export default function AttendancePage() {
                     </td>
                     <td className="table-cell font-mono">
                       <div className="flex items-center gap-1">
-                        {rec.check_in ? rec.check_in.substring(11, 16) : '-'}
+                        {formatThaiTime(rec.check_in)}
                         {getMethodBadge(rec.check_in_method)}
                       </div>
                     </td>
                     <td className="table-cell font-mono">
                       <div className="flex items-center gap-1">
-                        {rec.check_out ? rec.check_out.substring(11, 16) : '-'}
+                        {formatThaiTime(rec.check_out)}
                         {getMethodBadge(rec.check_out_method)}
                       </div>
                     </td>

@@ -13,15 +13,26 @@ export function formatDate(dateStr: string): string {
   return date.toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
-export function formatTime(timeStr: string): string {
-  if (!timeStr) return '-'
-  return timeStr.substring(0, 5)
+export function formatThaiTime(utcStr: string | null | undefined): string {
+  if (!utcStr) return '-'
+  // SQLite stores UTC without 'Z'; force UTC interpretation then convert to Bangkok
+  const iso = utcStr.includes('T') ? utcStr : utcStr.replace(' ', 'T') + 'Z'
+  return new Date(iso).toLocaleTimeString('th-TH', {
+    timeZone: 'Asia/Bangkok',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
 }
 
-export function formatDateTime(dateTimeStr: string): string {
-  if (!dateTimeStr) return '-'
-  const date = new Date(dateTimeStr)
-  return date.toLocaleString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+export function formatThaiDateTime(utcStr: string | null | undefined): string {
+  if (!utcStr) return '-'
+  const iso = utcStr.includes('T') ? utcStr : utcStr.replace(' ', 'T') + 'Z'
+  return new Date(iso).toLocaleString('th-TH', {
+    timeZone: 'Asia/Bangkok',
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  })
 }
 
 export function getTodayString(): string {
