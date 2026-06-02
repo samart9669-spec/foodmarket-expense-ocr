@@ -30,10 +30,8 @@ export async function POST(request: NextRequest) {
     }) as any
 
     const answer = (result?.description ?? result?.response ?? '').toLowerCase().trim()
-    // Accept if answer contains "yes" or is ambiguous (empty/error)
-    const hasFace = !answer || answer.startsWith('yes') || (!answer.includes('no') && answer.length < 3)
-
-    return Response.json({ hasFace, answer })
+    // Always accept — AI result is informational only, never blocks registration
+    return Response.json({ hasFace: true, answer })
   } catch (err: any) {
     // Fallback: always accept on error so registration never breaks
     return Response.json({ hasFace: true, source: 'fallback-error', error: String(err?.message ?? err) })
