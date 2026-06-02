@@ -9,7 +9,7 @@ import dynamic from 'next/dynamic'
 const FaceScanner = dynamic(() => import('@/components/FaceScanner'), { ssr: false })
 const QRScanner = dynamic(() => import('@/components/QRScanner'), { ssr: false })
 
-interface Employee { id: string; name: string; employee_type: string; face_descriptor: string | null; qr_code: string | null }
+interface Employee { id: string; name: string; employee_type: string; face_descriptor: string | null; face_photo: string | null; qr_code: string | null }
 interface SalesPoint { id: string; name: string; location: string; latitude: number | null; longitude: number | null; radius_meters: number | null }
 interface Shift { id: string; name: string; start_time: string; end_time: string }
 

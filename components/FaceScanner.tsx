@@ -2,13 +2,12 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 
-const FACEAPI_MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights'
-
 interface Employee {
   id: string
   name: string
   employee_type: string
   face_descriptor: string | null
+  face_photo: string | null
 }
 
 interface FaceScannerProps {
@@ -18,166 +17,180 @@ interface FaceScannerProps {
   isActive?: boolean
 }
 
+type LoadStatus = 'loading-models' | 'extracting' | 'ready' | 'no-faces' | 'error'
 
 export default function FaceScanner({ employees, onMatch, onError, isActive = true }: FaceScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const faceapiRef = useRef<any>(null)
+  const matcherRef = useRef<any>(null)
+  // Refs instead of state to avoid stale-closure bugs in the interval callback
+  const lastDetectionRef = useRef<string | null>(null)
+  const detectingRef = useRef(false)
 
-  const [modelsLoaded, setModelsLoaded] = useState(false)
-  const [loadingModels, setLoadingModels] = useState(false)
+  const [loadStatus, setLoadStatus] = useState<LoadStatus>('loading-models')
+  const [loadMsg, setLoadMsg] = useState('กำลังโหลดโมเดลจดจำใบหน้า...')
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [detecting, setDetecting] = useState(false)
-  const [lastDetection, setLastDetection] = useState<string | null>(null)
-  const [faceapiLoaded, setFaceapiLoaded] = useState(false)
 
-  useEffect(() => {
-    if (window.faceapi) {
-      setFaceapiLoaded(true)
-      return
-    }
-    const script = document.createElement('script')
-    script.src = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js'
-    script.async = true
-    script.onload = () => setFaceapiLoaded(true)
-    script.onerror = () => {
-      onError?.('ไม่สามารถโหลด face-api.js ได้')
-    }
-    document.head.appendChild(script)
-    return () => {
-      document.head.removeChild(script)
-    }
-  }, [onError])
-
-  useEffect(() => {
-    if (!faceapiLoaded) return
-    const loadModels = async () => {
-      try {
-        setLoadingModels(true)
-        const faceapi = window.faceapi
-        await Promise.all([
-          faceapi.nets.tinyFaceDetector.loadFromUri(FACEAPI_MODEL_URL),
-          faceapi.nets.faceLandmark68TinyNet.loadFromUri(FACEAPI_MODEL_URL),
-          faceapi.nets.faceRecognitionNet.loadFromUri(FACEAPI_MODEL_URL),
-        ])
-        setModelsLoaded(true)
-      } catch {
-        onError?.('ไม่สามารถโหลดโมเดล face-api จาก CDN ได้')
-      } finally {
-        setLoadingModels(false)
-      }
-    }
-    loadModels()
-  }, [faceapiLoaded, onError])
-
+  // ── Load npm package + local models, build face matcher ──────────
   useEffect(() => {
     if (!isActive) return
-    const startCamera = async () => {
+    let cancelled = false
+
+    const init = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 640, height: 480, facingMode: 'user' },
-        })
-        streamRef.current = stream
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-          try {
-            await videoRef.current.play()
-          } catch {
-            // iOS Safari may throw on play() but autoplay still works
+        setLoadStatus('loading-models')
+        setLoadMsg('กำลังโหลดโมเดลจดจำใบหน้า...')
+
+        // Dynamic import from npm — no CDN dependency
+        const faceapi = await import('face-api.js')
+        if (cancelled) return
+        faceapiRef.current = faceapi
+
+        // Models pre-downloaded to /public/models/ in CI workflow
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri('/models'),
+          faceapi.nets.faceLandmark68TinyNet.loadFromUri('/models'),
+          faceapi.nets.faceRecognitionNet.loadFromUri('/models'),
+        ])
+        if (cancelled) return
+
+        // Build descriptors — stored or extracted from face_photo
+        setLoadStatus('extracting')
+        setLoadMsg('กำลังประมวลผลข้อมูลใบหน้าพนักงาน...')
+
+        const labeled: any[] = []
+        for (const emp of employees) {
+          if (cancelled) return
+          let descriptor: Float32Array | null = null
+
+          // 1. Use stored descriptor if available (fast path)
+          if (emp.face_descriptor) {
+            try { descriptor = new Float32Array(JSON.parse(emp.face_descriptor)) } catch {}
+          }
+
+          // 2. Extract from face_photo and persist back to DB
+          if (!descriptor && emp.face_photo) {
+            try {
+              const img = document.createElement('img')
+              img.src = emp.face_photo
+              await new Promise<void>((res, rej) => {
+                img.onload = () => res()
+                img.onerror = () => rej(new Error('load'))
+                setTimeout(() => rej(new Error('timeout')), 8000)
+              })
+              const det = await faceapi
+                .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 320 }))
+                .withFaceLandmarks(true)
+                .withFaceDescriptor()
+              if (det) {
+                descriptor = det.descriptor
+                // Save so future check-ins skip extraction
+                fetch(`/api/employees/${emp.id}`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ face_descriptor: JSON.stringify(Array.from(descriptor)) }),
+                }).catch(() => {})
+              }
+            } catch {}
+          }
+
+          if (descriptor) {
+            labeled.push(new faceapi.LabeledFaceDescriptors(emp.id, [descriptor]))
           }
         }
-      } catch {
-        setCameraError('ไม่สามารถเข้าถึงกล้องได้ กรุณาอนุญาตการใช้กล้อง')
+
+        if (cancelled) return
+
+        if (labeled.length === 0) {
+          setLoadStatus('no-faces')
+          setLoadMsg('ยังไม่มีพนักงานที่มีข้อมูลใบหน้า')
+          return
+        }
+
+        matcherRef.current = new faceapi.FaceMatcher(labeled, 0.55)
+        setLoadStatus('ready')
+        setLoadMsg('')
+      } catch (err: any) {
+        if (!cancelled) {
+          const msg = err?.message ?? 'unknown'
+          setLoadStatus('error')
+          setLoadMsg('โหลดโมเดลไม่สำเร็จ: ' + msg)
+          onError?.('โหลดโมเดลไม่สำเร็จ')
+        }
       }
     }
-    startCamera()
-    return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop())
-        streamRef.current = null
+
+    init()
+    return () => { cancelled = true }
+  }, [isActive, employees, onError])
+
+  // ── Camera ────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isActive) return
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+    }).then(stream => {
+      streamRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        videoRef.current.play().catch(() => {})
       }
+    }).catch(() => {
+      setCameraError('ไม่สามารถเข้าถึงกล้องได้ กรุณาอนุญาตการใช้กล้อง')
+    })
+    return () => {
+      streamRef.current?.getTracks().forEach(t => t.stop())
+      streamRef.current = null
     }
   }, [isActive])
 
+  // ── Detection loop ────────────────────────────────────────────────
   const detectFace = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current || !modelsLoaded || !window.faceapi) return
-    const video = videoRef.current
-    if (video.readyState !== 4) return
+    if (detectingRef.current || !faceapiRef.current || !matcherRef.current) return
+    if (!videoRef.current || videoRef.current.readyState < 2) return
 
-    const faceapi = window.faceapi
+    detectingRef.current = true
     setDetecting(true)
-
-    // Snapshot to canvas first — iOS Safari restricts direct video pixel readback
-    const frame = document.createElement('canvas')
-    frame.width = video.videoWidth || 640
-    frame.height = video.videoHeight || 480
-    frame.getContext('2d')?.drawImage(video, 0, 0)
-
     try {
-      const detection = await faceapi
+      const faceapi = faceapiRef.current
+      // Snapshot to canvas first — more reliable on iOS Safari than direct video
+      const frame = document.createElement('canvas')
+      frame.width = videoRef.current.videoWidth || 640
+      frame.height = videoRef.current.videoHeight || 480
+      frame.getContext('2d')?.drawImage(videoRef.current, 0, 0)
+
+      const det = await faceapi
         .detectSingleFace(frame, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
-        .withFaceLandmarks()
+        .withFaceLandmarks(true)
         .withFaceDescriptor()
 
-      const canvas = canvasRef.current
-      const ctx = canvas.getContext('2d')
-      if (ctx) {
-        canvas.width = video.videoWidth
-        canvas.height = video.videoHeight
-        ctx.clearRect(0, 0, canvas.width, canvas.height)
-      }
-
-      if (!detection) {
-        setDetecting(false)
-        return
-      }
-
-      if (ctx) {
-        const { x, y, width, height } = detection.descriptor ?
-          { x: 0, y: 0, width: video.videoWidth, height: video.videoHeight } :
-          { x: 0, y: 0, width: video.videoWidth, height: video.videoHeight }
-        ctx.strokeStyle = '#22c55e'
-        ctx.lineWidth = 3
-        ctx.strokeRect(x + 10, y + 10, width - 20, height - 20)
-      }
-
-      const registeredEmployees = employees.filter((e) => e.face_descriptor)
-      if (registeredEmployees.length === 0) {
-        setDetecting(false)
-        return
-      }
-
-      const labeledDescriptors = registeredEmployees.map((emp) => {
-        const descriptorArray = JSON.parse(emp.face_descriptor!) as number[]
-        return new faceapi.LabeledFaceDescriptors(emp.id, [new Float32Array(descriptorArray)])
-      })
-
-      const faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6)
-      const match = faceMatcher.findBestMatch(detection.descriptor)
-
-      if (match.label !== 'unknown' && match.distance < 0.6) {
-        const matchedEmployee = employees.find((e) => e.id === match.label)
-        if (matchedEmployee && match.label !== lastDetection) {
-          setLastDetection(match.label)
-          onMatch(matchedEmployee.id, matchedEmployee.name)
-          setTimeout(() => setLastDetection(null), 3000)
+      if (det) {
+        const match = matcherRef.current.findBestMatch(det.descriptor)
+        if (match.label !== 'unknown' && lastDetectionRef.current !== match.label) {
+          const emp = employees.find(e => e.id === match.label)
+          if (emp) {
+            lastDetectionRef.current = match.label
+            onMatch(emp.id, emp.name)
+            setTimeout(() => { lastDetectionRef.current = null }, 3000)
+          }
         }
       }
-    } catch {
-      // Detection error - ignore and continue
-    } finally {
-      setDetecting(false)
-    }
-  }, [modelsLoaded, employees, onMatch, lastDetection])
+    } catch {}
+    detectingRef.current = false
+    setDetecting(false)
+  }, [employees, onMatch])
 
   useEffect(() => {
-    if (!modelsLoaded || !isActive) return
-    intervalRef.current = setInterval(detectFace, 1000)
+    if (loadStatus !== 'ready') return
+    intervalRef.current = setInterval(detectFace, 800)
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
-  }, [modelsLoaded, isActive, detectFace])
+  }, [loadStatus, detectFace])
 
   if (cameraError) {
     return (
@@ -190,34 +203,22 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
     )
   }
 
+  const isLoading = loadStatus === 'loading-models' || loadStatus === 'extracting'
+
   return (
     <div className="relative">
-      {(loadingModels || !faceapiLoaded) && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 bg-opacity-80 rounded-xl z-10">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-400 border-t-transparent rounded-full mb-3"></div>
-          <p className="text-white text-sm">
-            {!faceapiLoaded ? 'กำลังโหลด face-api.js...' : 'กำลังโหลดโมเดลจดจำใบหน้า...'}
-          </p>
-          <p className="text-gray-300 text-xs mt-2">โหลดจาก CDN อาจใช้เวลา 30-60 วินาทีครั้งแรก</p>
+      {isLoading && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 bg-opacity-80 rounded-xl z-10 min-h-[240px]">
+          <div className="animate-spin w-8 h-8 border-4 border-blue-400 border-t-transparent rounded-full mb-3" />
+          <p className="text-white text-sm text-center px-4">{loadMsg}</p>
+          <p className="text-gray-400 text-xs mt-2">ครั้งแรกอาจใช้เวลา 10–20 วินาที</p>
         </div>
       )}
 
-      {!modelsLoaded && !loadingModels && faceapiLoaded && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 bg-opacity-90 rounded-xl z-10">
-          <svg className="w-10 h-10 text-yellow-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
-          <p className="text-white font-medium">ไม่สามารถโหลดโมเดล face-api จาก CDN ได้</p>
-          <p className="text-gray-300 text-xs mt-2 text-center px-4">กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต และลองรีเฟรชหน้าอีกครั้ง</p>
-        </div>
-      )}
-
-      <div className="relative rounded-xl overflow-hidden bg-black">
+      <div className="relative rounded-xl overflow-hidden bg-black" style={{ minHeight: isLoading ? 240 : 0 }}>
         <video
           ref={videoRef}
-          autoPlay
-          muted
-          playsInline
+          autoPlay muted playsInline
           className="w-full max-h-96 object-cover"
           style={{ transform: 'scaleX(-1)' }}
         />
@@ -227,10 +228,10 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
           style={{ transform: 'scaleX(-1)' }}
         />
 
-        {modelsLoaded && (
+        {loadStatus === 'ready' && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="w-48 h-48 border-2 border-green-400 rounded-full opacity-50">
-              <div className="w-full h-full border-4 border-transparent border-t-green-400 rounded-full animate-spin"></div>
+              <div className="w-full h-full border-4 border-transparent border-t-green-400 rounded-full animate-spin" />
             </div>
           </div>
         )}
@@ -242,11 +243,17 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
         )}
       </div>
 
-      {modelsLoaded && employees.filter((e) => e.face_descriptor).length === 0 && (
+      {loadStatus === 'no-faces' && (
         <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
           <p className="text-yellow-700 text-sm text-center">
-            ยังไม่มีพนักงานที่ลงทะเบียนใบหน้า กรุณาเพิ่มข้อมูลใบหน้าในหน้าพนักงาน
+            ยังไม่มีพนักงานที่มีข้อมูลใบหน้า กรุณาลงทะเบียนรูปภาพพนักงานก่อน
           </p>
+        </div>
+      )}
+
+      {loadStatus === 'error' && (
+        <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-red-700 text-sm text-center">{loadMsg}</p>
         </div>
       )}
     </div>
