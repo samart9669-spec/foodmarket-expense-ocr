@@ -39,8 +39,6 @@ export default function NewEmployeePage() {
   // Photo state
   const [photoState, setPhotoState] = useState<PhotoState>('idle')
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null)
-  const [hasFace, setHasFace] = useState<boolean | null>(null)
-  const [aiNote, setAiNote] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
   const [qrCode, setQrCode] = useState('')
 
@@ -92,28 +90,12 @@ export default function NewEmployeePage() {
     processPhoto(url)
   }
 
-  // ── AI face analysis ──────────────────────────────────────────────
+  // ── Process photo: compress then store ───────────────────────────
   const processPhoto = async (src: string) => {
-    setPhotoState('previewing')
-    setPhotoDataUrl(src)
-    setHasFace(null)
-    setAiNote('')
-
     setPhotoState('analyzing')
-    try {
-      const compressed = await compressImage(src)
-      const res = await fetch('/api/face-detect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageData: compressed }),
-      })
-      const data = await res.json() as any
-      setHasFace(data.hasFace)
-      setAiNote(data.answer ?? '')
-      setPhotoDataUrl(compressed) // use compressed version for storage
-    } catch {
-      setHasFace(null) // unknown → still allow save
-    }
+    setPhotoDataUrl(src)
+    const compressed = await compressImage(src)
+    setPhotoDataUrl(compressed)
     setPhotoState('done')
   }
 
@@ -121,8 +103,6 @@ export default function NewEmployeePage() {
     stopCamera()
     setPhotoState('idle')
     setPhotoDataUrl(null)
-    setHasFace(null)
-    setAiNote('')
   }
 
   // ── Submit ────────────────────────────────────────────────────────
@@ -218,8 +198,8 @@ export default function NewEmployeePage() {
 
         {/* Photo / Face */}
         <div className="card space-y-4">
-          <h2 className="font-semibold text-gray-900 pb-2 border-b">รูปภาพพนักงาน</h2>
-          <p className="text-sm text-gray-500">ใช้ Cloudflare AI วิเคราะห์ใบหน้าอัตโนมัติ</p>
+          <h2 className="font-semibold text-gray-900 pb-2 border-b">ลงทะเบียนรูปภาพ / ใบหน้า</h2>
+          <p className="text-sm text-gray-500">ถ่ายหรืออัปโหลดรูปภาพพนักงาน (ไม่บังคับ)</p>
 
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
 
@@ -282,7 +262,7 @@ export default function NewEmployeePage() {
               )}
               <div className="flex items-center gap-3 text-blue-600">
                 <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                <span className="text-sm font-medium">Cloudflare AI กำลังวิเคราะห์ใบหน้า...</span>
+                <span className="text-sm font-medium">กำลังประมวลผลรูปภาพ...</span>
               </div>
             </div>
           )}
@@ -290,40 +270,21 @@ export default function NewEmployeePage() {
           {/* Done */}
           {photoState === 'done' && photoDataUrl && (
             <div className="space-y-3">
-              <div className={`relative w-28 h-28 mx-auto rounded-xl overflow-hidden border-4 ${hasFace === false ? 'border-orange-400' : 'border-green-400'}`}>
+              <div className="relative w-28 h-28 mx-auto rounded-xl overflow-hidden border-4 border-green-400">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={photoDataUrl} alt="face" className="w-full h-full object-cover" />
-                {hasFace !== false && (
-                  <div className="absolute bottom-0 left-0 right-0 bg-green-500 text-white text-center text-xs py-0.5 font-medium">
-                    ✓ พบใบหน้า
-                  </div>
-                )}
+                <div className="absolute bottom-0 left-0 right-0 bg-green-500 text-white text-center text-xs py-0.5 font-medium">
+                  ✓ พร้อมใช้งาน
+                </div>
               </div>
 
-              {hasFace === false ? (
-                <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg text-sm text-orange-800 text-center space-y-2">
-                  <p className="font-medium">⚠️ AI ไม่พบใบหน้าในรูป</p>
-                  <p className="text-xs text-orange-600">ลองใช้รูปที่เห็นใบหน้าชัดเจน หรือกด "บันทึกรูปนี้ต่อไป" เพื่อใช้รูปนี้</p>
-                  <div className="flex gap-2 pt-1">
-                    <button type="button" onClick={resetPhoto}
-                      className="flex-1 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-sm font-medium">
-                      เปลี่ยนรูป
-                    </button>
-                    <button type="button" onClick={() => setHasFace(true)}
-                      className="flex-1 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-sm font-medium">
-                      บันทึกรูปนี้ต่อไป
-                    </button>
-                  </div>
+              <div className="flex items-center justify-between px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
+                <div>
+                  <p className="text-sm font-medium text-green-800">บันทึกรูปสำเร็จ</p>
+                  <p className="text-xs text-green-600">รูปภาพพร้อมใช้งาน</p>
                 </div>
-              ) : (
-                <div className="flex items-center justify-between px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
-                  <div>
-                    <p className="text-sm font-medium text-green-800">บันทึกรูปสำเร็จ</p>
-                    <p className="text-xs text-green-600">AI ยืนยันพบใบหน้าในรูป</p>
-                  </div>
-                  <button type="button" onClick={resetPhoto} className="text-xs text-gray-500 hover:underline">เปลี่ยน</button>
-                </div>
-              )}
+                <button type="button" onClick={resetPhoto} className="text-xs text-gray-500 hover:underline">เปลี่ยน</button>
+              </div>
             </div>
           )}
 
