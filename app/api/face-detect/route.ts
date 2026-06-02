@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
 
     const result = await env.AI.run('@cf/uform/gen2-qwen-500m', {
-      image: [...bytes],
+      image: Array.from(bytes),
       prompt: 'Is there a human face clearly visible in this photo? Reply with only the single word yes or no.',
       max_tokens: 5,
     }) as any
