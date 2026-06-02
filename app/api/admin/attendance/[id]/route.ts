@@ -37,3 +37,21 @@ export async function PATCH(
     return Response.json({ error: 'Failed to update attendance' }, { status: 500 })
   }
 }
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  if (!isAdminAuthorized(request)) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  try {
+    const { env } = getRequestContext()
+    const db = env.DB
+    await db.prepare('DELETE FROM attendance WHERE id = ?').bind(params.id).run()
+    return Response.json({ success: true })
+  } catch (error) {
+    console.error('Admin DELETE /api/admin/attendance/[id]:', error)
+    return Response.json({ error: 'Failed to delete attendance' }, { status: 500 })
+  }
+}
