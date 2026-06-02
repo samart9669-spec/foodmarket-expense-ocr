@@ -50,14 +50,21 @@ export async function loginUser(
       const hash = await hashPassword(username, password)
       if (hash !== user.password_hash) return null
 
-      const token = crypto.randomUUID()
-      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-      await db.prepare(
-        'INSERT INTO admin_sessions (token, user_id, username, role, expires_at) VALUES (?, ?, ?, ?, ?)'
-      ).bind(token, user.id, user.username, user.role, expiresAt).run()
-      // Best-effort cleanup of stale sessions
-      db.prepare('DELETE FROM admin_sessions WHERE expires_at < ?')
-        .bind(new Date().toISOString()).run().catch(() => {})
+      // Hash matched — generate session token. Fall back to env-style token if INSERT fails.
+      let token: string
+      try {
+        token = crypto.randomUUID()
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+        await db.prepare(
+          'INSERT INTO admin_sessions (token, user_id, username, role, expires_at) VALUES (?, ?, ?, ?, ?)'
+        ).bind(token, user.id, user.username, user.role, expiresAt).run()
+        // Best-effort cleanup of stale sessions
+        db.prepare('DELETE FROM admin_sessions WHERE expires_at < ?')
+          .bind(new Date().toISOString()).run().catch(() => {})
+      } catch {
+        // Sessions table not ready yet — use a stateless env-style token
+        token = 'env:' + btoa(`${user.username}:${password}`)
+      }
       return { token, role: user.role as AdminRole, display_name: user.display_name }
     }
   } catch { /* Table may not exist yet */ }
@@ -73,14 +80,30 @@ export async function loginUser(
 }
 
 export async function verifySession(db: any, token: string): Promise<SessionUser | null> {
-  // Env-var pseudo-token
+  // Stateless env-style token: verify by re-hashing against DB first, then env-var fallback
   if (token.startsWith('env:')) {
     try {
-      const creds = getEnvCreds()
       const decoded = atob(token.slice(4))
       const colon = decoded.indexOf(':')
       const u = decoded.slice(0, colon)
       const p = decoded.slice(colon + 1)
+
+      // Try DB verification first
+      try {
+        const user = await db.prepare(
+          'SELECT * FROM admin_users WHERE username = ? AND is_active = 1'
+        ).bind(u).first() as any
+        if (user) {
+          const hash = await hashPassword(u, p)
+          if (hash === user.password_hash) {
+            return { username: user.username, role: user.role as AdminRole, display_name: user.display_name }
+          }
+          return null
+        }
+      } catch { /* fall through to env-var check */ }
+
+      // Env-var fallback
+      const creds = getEnvCreds()
       if (u === creds.username && p === creds.password) {
         return { username: u, role: 'superadmin', display_name: 'ผู้ดูแลระบบ' }
       }

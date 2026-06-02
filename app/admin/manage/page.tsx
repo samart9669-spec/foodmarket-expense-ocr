@@ -418,7 +418,7 @@ function UsersTab({ token, currentUsername }: { token: string; currentUsername: 
 
 // ── Login Modal ───────────────────────────────────────────────────
 function LoginModal({ onAuth }: { onAuth: (auth: AuthState) => void }) {
-  const [username, setUsername] = useState('')
+  const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState('')
@@ -458,7 +458,7 @@ function LoginModal({ onAuth }: { onAuth: (auth: AuthState) => void }) {
             </svg>
           </div>
           <h2 className="text-xl font-bold text-white">เข้าสู่ระบบผู้ดูแล</h2>
-          <p className="text-red-200 text-sm mt-1">Admin เท่านั้น</p>
+          <p className="text-red-200 text-sm mt-1">Powerone Networking · Admin</p>
         </div>
 
         {/* Form */}
