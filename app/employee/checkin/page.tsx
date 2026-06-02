@@ -103,14 +103,13 @@ export default function EmployeeCheckinPage() {
       setResult({ success: false, message: 'เกิดข้อผิดพลาดในการเชื่อมต่อ' })
     } finally {
       setLoading(false)
-      setTimeout(() => setResult(null), 5000)
     }
   }, [loading, scanMode, selectedBranch, selectedShift])
 
   const handleFace = useCallback((id: string, name: string) => doAction(id, name, 'face'), [doAction])
   const handleQR = useCallback(async (code: string) => {
     const emp = employees.find(e => e.qr_code === code)
-    if (!emp) { setResult({ success: false, message: 'ไม่พบพนักงาน QR Code นี้' }); setTimeout(() => setResult(null), 4000); return }
+    if (!emp) { setResult({ success: false, message: 'ไม่พบพนักงาน QR Code นี้' }); return }
     await doAction(emp.id, emp.name, 'qr')
   }, [employees, doAction])
 
@@ -193,7 +192,20 @@ export default function EmployeeCheckinPage() {
               }
             </div>
             {result.name && <p className="text-2xl font-bold mb-1">{result.name}</p>}
-            <p className={`text-lg font-semibold ${result.success ? 'text-green-300' : 'text-red-300'}`}>{result.message}</p>
+            <p className={`text-lg font-semibold mb-4 ${result.success ? 'text-green-300' : 'text-red-300'}`}>{result.message}</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setResult(null)}
+                className="flex-1 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 font-semibold text-white"
+              >
+                สแกนคนต่อไป
+              </button>
+              <Link href="/employee"
+                className="flex-1 py-3 rounded-xl bg-gray-700 hover:bg-gray-600 font-semibold text-white text-center"
+              >
+                หน้าหลัก
+              </Link>
+            </div>
           </div>
         )}
 
@@ -215,7 +227,7 @@ export default function EmployeeCheckinPage() {
           </div>
           <div className="bg-gray-900">
             {tab === 'face'
-              ? <FaceScanner employees={employees} onMatch={handleFace} isActive={tab === 'face'} />
+              ? <FaceScanner employees={employees} onMatch={handleFace} isActive={tab === 'face' && !result} />
               : <QRScanner onScan={handleQR} isActive={tab === 'qr'} />
             }
           </div>

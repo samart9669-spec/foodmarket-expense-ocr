@@ -35,30 +35,35 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [detecting, setDetecting] = useState(false)
 
-  // ── Load npm package + local models, build face matcher ──────────
+  // ── Load models ONCE on mount, rebuild matcher when employees change ─
   useEffect(() => {
-    if (!isActive) return
     let cancelled = false
 
     const init = async () => {
       try {
-        setLoadStatus('loading-models')
-        setLoadMsg('กำลังโหลดโมเดลจดจำใบหน้า...')
-
-        // Dynamic import from npm — no CDN dependency
         const faceapi = await import('face-api.js')
         if (cancelled) return
         faceapiRef.current = faceapi
 
-        // Models pre-downloaded to /public/models/ in CI workflow
-        await Promise.all([
-          faceapi.nets.tinyFaceDetector.loadFromUri('/models'),
-          faceapi.nets.faceLandmark68TinyNet.loadFromUri('/models'),
-          faceapi.nets.faceRecognitionNet.loadFromUri('/models'),
-        ])
-        if (cancelled) return
+        // Skip loading if already loaded (fast path on isActive toggle)
+        if (!faceapi.nets.tinyFaceDetector.isLoaded) {
+          setLoadStatus('loading-models')
+          setLoadMsg('กำลังโหลดโมเดลจดจำใบหน้า...')
+          await Promise.all([
+            faceapi.nets.tinyFaceDetector.loadFromUri('/models'),
+            faceapi.nets.faceLandmark68TinyNet.loadFromUri('/models'),
+            faceapi.nets.faceRecognitionNet.loadFromUri('/models'),
+          ])
+          if (cancelled) return
+        }
 
-        // Build descriptors — stored or extracted from face_photo
+        // Wait for employees to be available before building matcher
+        if (employees.length === 0) {
+          setLoadStatus('loading-models')
+          setLoadMsg('กำลังโหลดข้อมูลพนักงาน...')
+          return
+        }
+
         setLoadStatus('extracting')
         setLoadMsg('กำลังประมวลผลข้อมูลใบหน้าพนักงาน...')
 
@@ -67,12 +72,10 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
           if (cancelled) return
           let descriptor: Float32Array | null = null
 
-          // 1. Use stored descriptor if available (fast path)
           if (emp.face_descriptor) {
             try { descriptor = new Float32Array(JSON.parse(emp.face_descriptor)) } catch {}
           }
 
-          // 2. Extract from face_photo and persist back to DB
           if (!descriptor && emp.face_photo) {
             try {
               const img = document.createElement('img')
@@ -88,7 +91,6 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
                 .withFaceDescriptor()
               if (det) {
                 descriptor = det.descriptor
-                // Save so future check-ins skip extraction
                 fetch(`/api/employees/${emp.id}`, {
                   method: 'PUT',
                   headers: { 'Content-Type': 'application/json' },
@@ -126,7 +128,7 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
 
     init()
     return () => { cancelled = true }
-  }, [isActive, employees, onError])
+  }, [employees, onError])
 
   // ── Camera ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -185,12 +187,12 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
   }, [employees, onMatch])
 
   useEffect(() => {
-    if (loadStatus !== 'ready') return
+    if (loadStatus !== 'ready' || !isActive) return
     intervalRef.current = setInterval(detectFace, 800)
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
-  }, [loadStatus, detectFace])
+  }, [loadStatus, isActive, detectFace])
 
   if (cameraError) {
     return (
