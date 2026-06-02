@@ -25,7 +25,7 @@ export default function EmployeeLandingPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
           </svg>
         </div>
-        <h1 className="text-xl font-semibold text-blue-200">ตลาดอาหาร</h1>
+        <h1 className="text-xl font-semibold text-blue-200">Powerone Networking</h1>
         <p className="text-5xl font-bold font-mono tracking-widest mt-3">{timeStr}</p>
         <p className="text-gray-400 mt-2">{dateStr}</p>
       </div>
@@ -84,7 +84,7 @@ export default function EmployeeLandingPage() {
         </Link>
 
         <p className="text-center text-gray-600 text-xs pt-4">
-          ระบบพนักงาน · ตลาดอาหาร
+          ระบบพนักงาน · Powerone Networking
         </p>
       </div>
     </div>
