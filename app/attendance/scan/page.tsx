@@ -3,6 +3,7 @@
 export const runtime = 'edge'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 
 const FaceScanner = dynamic(() => import('@/components/FaceScanner'), { ssr: false })
@@ -33,6 +34,7 @@ interface ScanResult {
 }
 
 export default function AttendanceScanPage() {
+  const router = useRouter()
   const [tab, setTab] = useState<'face' | 'qr'>('face')
   const [employees, setEmployees] = useState<Employee[]>([])
   const [salesPoints, setSalesPoints] = useState<SalesPoint[]>([])
@@ -85,7 +87,6 @@ export default function AttendanceScanPage() {
         setScanResult({ success: false, message: 'เกิดข้อผิดพลาดในการเชื่อมต่อ' })
       } finally {
         setLoading(false)
-        setTimeout(() => setScanResult(null), 4000)
       }
     },
     [loading, scanMode, selectedSalesPoint]
@@ -97,7 +98,6 @@ export default function AttendanceScanPage() {
       const employee = employees.find((e) => e.qr_code === code)
       if (!employee) {
         setScanResult({ success: false, message: `ไม่พบพนักงานที่มี QR Code: ${code}` })
-        setTimeout(() => setScanResult(null), 4000)
         return
       }
 
@@ -122,7 +122,6 @@ export default function AttendanceScanPage() {
         setScanResult({ success: false, message: 'เกิดข้อผิดพลาดในการเชื่อมต่อ' })
       } finally {
         setLoading(false)
-        setTimeout(() => setScanResult(null), 4000)
       }
     },
     [loading, scanMode, selectedSalesPoint, employees]
@@ -209,6 +208,32 @@ export default function AttendanceScanPage() {
               {scanResult.employee_type === 'kitchen' ? 'ครัวกลาง' : 'พนักงานขาย'}
             </span>
           )}
+
+          {/* Action buttons — stay until user chooses */}
+          <div className="flex gap-3 mt-4 justify-center">
+            <button
+              onClick={() => setScanResult(null)}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                scanResult.success
+                  ? 'bg-green-600 hover:bg-green-700 text-white'
+                  : 'bg-gray-600 hover:bg-gray-700 text-white'
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+              </svg>
+              สแกนคนต่อไป
+            </button>
+            <button
+              onClick={() => router.push('/')}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+              </svg>
+              หน้าหลัก
+            </button>
+          </div>
         </div>
       )}
 
@@ -239,9 +264,9 @@ export default function AttendanceScanPage() {
         </div>
         <div className="p-4">
           {tab === 'face' ? (
-            <FaceScanner employees={employees} onMatch={handleEmployeeDetected} isActive={tab === 'face'} />
+            <FaceScanner employees={employees} onMatch={handleEmployeeDetected} isActive={tab === 'face' && !scanResult} />
           ) : (
-            <QRScanner onScan={handleQRScan} isActive={tab === 'qr'} />
+            <QRScanner onScan={handleQRScan} isActive={tab === 'qr' && !scanResult} />
           )}
         </div>
       </div>
