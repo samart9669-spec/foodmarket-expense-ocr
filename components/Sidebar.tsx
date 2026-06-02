@@ -15,6 +15,10 @@ const navItems = [
   { href: '/branches', label: 'จัดการสาขา', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg> },
 ]
 
+const adminItems = [
+  { href: '/admin/manage', label: 'จัดการระบบ (Admin)', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg> },
+]
+
 export default function Sidebar() {
   const pathname = usePathname()
   return (
@@ -32,6 +36,15 @@ export default function Sidebar() {
           const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
           return (
             <Link key={item.href} href={item.href} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${isActive ? 'bg-blue-700 text-white' : 'text-blue-200 hover:bg-blue-800 hover:text-white'}`}>
+              {item.icon}{item.label}
+            </Link>
+          )
+        })}
+        <div className="my-2 border-t border-blue-800" />
+        {adminItems.map((item) => {
+          const isActive = pathname.startsWith(item.href)
+          return (
+            <Link key={item.href} href={item.href} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${isActive ? 'bg-red-700 text-white' : 'text-red-300 hover:bg-red-900 hover:text-white'}`}>
               {item.icon}{item.label}
             </Link>
           )
