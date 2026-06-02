@@ -52,6 +52,31 @@ export async function POST() {
       )
     `, 'leave_requests table')
 
+    // Admin users table
+    await run(`
+      CREATE TABLE IF NOT EXISTS admin_users (
+        id TEXT PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'viewer' CHECK(role IN ('superadmin','admin','manager','viewer')),
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `, 'admin_users table')
+
+    // Admin sessions table
+    await run(`
+      CREATE TABLE IF NOT EXISTS admin_sessions (
+        token TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        username TEXT NOT NULL,
+        role TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `, 'admin_sessions table')
+
     return Response.json({ ok: true, results })
   } catch (error) {
     return Response.json({ error: String(error) }, { status: 500 })

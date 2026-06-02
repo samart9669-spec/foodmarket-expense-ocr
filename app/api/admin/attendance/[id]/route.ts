@@ -8,17 +8,13 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  if (!isAdminAuthorized(request)) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-  try {
-    const { env } = getRequestContext()
-    const db = env.DB
-    const body = await request.json() as {
-      check_in?: string | null
-      check_out?: string | null
-    }
+  const { env } = getRequestContext()
+  const user = await isAdminAuthorized(request, env.DB, 'manager')
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
+  try {
+    const db = env.DB
+    const body = await request.json() as { check_in?: string | null; check_out?: string | null }
     await db.prepare(`
       UPDATE attendance SET
         check_in  = CASE WHEN ? IS NOT NULL THEN ? ELSE check_in  END,
@@ -29,7 +25,6 @@ export async function PATCH(
       body.check_out ?? null, body.check_out ?? null,
       params.id
     ).run()
-
     const record = await db.prepare('SELECT * FROM attendance WHERE id = ?').bind(params.id).first()
     return Response.json({ record })
   } catch (error) {
@@ -42,13 +37,12 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  if (!isAdminAuthorized(request)) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const { env } = getRequestContext()
+  const user = await isAdminAuthorized(request, env.DB, 'admin')
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+
   try {
-    const { env } = getRequestContext()
-    const db = env.DB
-    await db.prepare('DELETE FROM attendance WHERE id = ?').bind(params.id).run()
+    await env.DB.prepare('DELETE FROM attendance WHERE id = ?').bind(params.id).run()
     return Response.json({ success: true })
   } catch (error) {
     console.error('Admin DELETE /api/admin/attendance/[id]:', error)
