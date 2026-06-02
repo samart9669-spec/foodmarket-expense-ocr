@@ -13,6 +13,7 @@ interface Employee {
   name: string
   employee_type: string
   face_descriptor: string | null
+  face_photo: string | null
   qr_code: string | null
 }
 
