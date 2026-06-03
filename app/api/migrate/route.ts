@@ -77,6 +77,32 @@ export async function POST() {
       )
     `, 'admin_sessions table')
 
+    await run('ALTER TABLE shifts ADD COLUMN break_minutes INTEGER DEFAULT 60', 'shifts.break_minutes')
+
+    await run(`
+      CREATE TABLE IF NOT EXISTS payroll_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        label TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'general',
+        unit TEXT DEFAULT ''
+      )
+    `, 'payroll_settings table')
+
+    await run(`INSERT OR IGNORE INTO payroll_settings (key, value, label, category, unit) VALUES
+      ('allowance_food', '50', 'ค่าอาหาร', 'allowance', '฿'),
+      ('allowance_split_shift', '50', 'เบี้ยกะแยก', 'allowance', '฿'),
+      ('allowance_site', '0', 'เบี้ยสถานที่', 'allowance', '฿'),
+      ('holiday_wage_multiplier', '2.0', 'ตัวคูณค่าแรงวันหยุดนักขัตฤกษ์', 'daytype', 'x'),
+      ('weekend_wage_multiplier', '1.0', 'ตัวคูณค่าแรงวันเสาร์-อาทิตย์', 'daytype', 'x'),
+      ('ot_multiplier_weekday', '1.5', 'ตัวคูณ OT วันธรรมดา', 'ot', 'x'),
+      ('ot_multiplier_weekend', '2.0', 'ตัวคูณ OT วันหยุดสุดสัปดาห์', 'ot', 'x'),
+      ('ot_multiplier_holiday', '3.0', 'ตัวคูณ OT วันหยุดนักขัตฤกษ์', 'ot', 'x'),
+      ('sso_rate', '5', 'อัตราประกันสังคม (SSO)', 'deduction', '%'),
+      ('wht_rate', '3', 'ภาษีหัก ณ ที่จ่าย (WHT)', 'deduction', '%'),
+      ('uniform_deposit', '0', 'ค่ามัดจำเครื่องแบบ', 'deduction', '฿')
+    `, 'payroll_settings seed')
+
     return Response.json({ ok: true, results })
   } catch (error) {
     return Response.json({ error: String(error) }, { status: 500 })

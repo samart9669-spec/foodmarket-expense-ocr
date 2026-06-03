@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   try {
     const { env } = getRequestContext()
     const body = await request.json() as any
-    const { name, start_time, end_time, regular_hours } = body
+    const { name, start_time, end_time, regular_hours, break_minutes } = body
 
     if (!name || !start_time || !end_time) {
       return Response.json({ error: 'กรุณากรอกชื่อกะ เวลาเริ่ม และเวลาสิ้นสุด' }, { status: 400 })
@@ -25,12 +25,13 @@ export async function POST(request: Request) {
 
     const id = `shift-${Date.now()}`
     const hours = regular_hours ?? calcHours(start_time, end_time)
+    const brk = break_minutes ?? 60
 
     await env.DB.prepare(
-      'INSERT INTO shifts (id, name, start_time, end_time, regular_hours) VALUES (?, ?, ?, ?, ?)'
-    ).bind(id, name, start_time, end_time, hours).run()
+      'INSERT INTO shifts (id, name, start_time, end_time, regular_hours, break_minutes) VALUES (?, ?, ?, ?, ?, ?)'
+    ).bind(id, name, start_time, end_time, hours, brk).run()
 
-    return Response.json({ id, name, start_time, end_time, regular_hours: hours })
+    return Response.json({ id, name, start_time, end_time, regular_hours: hours, break_minutes: brk })
   } catch (error) {
     console.error('POST /api/shifts error:', error)
     return Response.json({ error: 'Failed to create shift' }, { status: 500 })
@@ -41,17 +42,18 @@ export async function PUT(request: Request) {
   try {
     const { env } = getRequestContext()
     const body = await request.json() as any
-    const { id, name, start_time, end_time, regular_hours } = body
+    const { id, name, start_time, end_time, regular_hours, break_minutes } = body
 
     if (!id || !name || !start_time || !end_time) {
       return Response.json({ error: 'ข้อมูลไม่ครบ' }, { status: 400 })
     }
 
     const hours = regular_hours ?? calcHours(start_time, end_time)
+    const brk = break_minutes ?? 60
 
     await env.DB.prepare(
-      'UPDATE shifts SET name=?, start_time=?, end_time=?, regular_hours=? WHERE id=?'
-    ).bind(name, start_time, end_time, hours, id).run()
+      'UPDATE shifts SET name=?, start_time=?, end_time=?, regular_hours=?, break_minutes=? WHERE id=?'
+    ).bind(name, start_time, end_time, hours, brk, id).run()
 
     return Response.json({ success: true })
   } catch (error) {
