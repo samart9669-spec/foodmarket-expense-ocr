@@ -46,8 +46,10 @@ export async function POST(request: NextRequest) {
     const body = await request.json() as {
       name: string
       employee_type: string
+      salary_type?: string
       sales_point_id?: string
       daily_rate?: number
+      monthly_salary?: number
       ot_rate?: number
       commission_rate?: number
       face_descriptor?: string
@@ -59,8 +61,10 @@ export async function POST(request: NextRequest) {
     const {
       name,
       employee_type,
+      salary_type = 'daily',
       sales_point_id,
       daily_rate = 350,
+      monthly_salary = 0,
       ot_rate = 50,
       commission_rate = 0,
       face_descriptor,
@@ -81,10 +85,11 @@ export async function POST(request: NextRequest) {
     const generatedQR = qr_code || `EMP-${id.substring(0, 8).toUpperCase()}`
 
     await db.prepare(`
-      INSERT INTO employees (id, name, employee_type, sales_point_id, daily_rate, ot_rate, commission_rate, face_descriptor, face_photo, qr_code, phone, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      INSERT INTO employees (id, name, employee_type, salary_type, sales_point_id, daily_rate, monthly_salary, ot_rate, commission_rate, face_descriptor, face_photo, qr_code, phone, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
     `).bind(
-      id, name, employee_type, sales_point_id || null, daily_rate, ot_rate, commission_rate,
+      id, name, employee_type, salary_type, sales_point_id || null,
+      daily_rate, monthly_salary, ot_rate, commission_rate,
       face_descriptor || null, face_photo || null, generatedQR, phone || null
     ).run()
 

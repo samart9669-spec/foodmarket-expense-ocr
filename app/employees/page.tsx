@@ -11,7 +11,9 @@ interface Employee {
   id: string
   name: string
   employee_type: string
+  salary_type: string
   daily_rate: number
+  monthly_salary: number
   ot_rate: number
   commission_rate: number
   phone: string | null
@@ -25,7 +27,7 @@ interface Employee {
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<'all' | 'kitchen' | 'sales'>('all')
+  const [filter, setFilter] = useState<'all' | 'kitchen' | 'sales' | 'monthly'>('all')
   const [showInactive, setShowInactive] = useState(false)
   const [search, setSearch] = useState('')
   const [acting, setActing] = useState<string | null>(null)
@@ -68,7 +70,8 @@ export default function EmployeesPage() {
   }
 
   const filtered = employees.filter(emp => {
-    const matchType = filter === 'all' || emp.employee_type === filter
+    const matchType = filter === 'all'
+      || (filter === 'monthly' ? emp.salary_type === 'monthly' : emp.employee_type === filter)
     const matchSearch = emp.name.toLowerCase().includes(search.toLowerCase())
     return matchType && matchSearch
   })
@@ -103,12 +106,12 @@ export default function EmployeesPage() {
               onChange={e => setSearch(e.target.value)} className="input-field" />
           </div>
           <div className="flex gap-2 flex-wrap">
-            {(['all', 'kitchen', 'sales'] as const).map(f => (
+            {(['all', 'kitchen', 'sales', 'monthly'] as const).map(f => (
               <button key={f} onClick={() => setFilter(f)}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   filter === f ? 'bg-blue-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}>
-                {f === 'all' ? 'ทั้งหมด' : f === 'kitchen' ? 'ครัวกลาง' : 'พนักงานขาย'}
+                {f === 'all' ? 'ทั้งหมด' : f === 'kitchen' ? 'ครัวกลาง' : f === 'sales' ? 'พนักงานขาย' : 'รายเดือน'}
               </button>
             ))}
             <button onClick={() => setShowInactive(v => !v)}
@@ -167,8 +170,12 @@ export default function EmployeesPage() {
                       )}
                     </td>
                     <td className="table-cell font-medium text-gray-900">{emp.name}</td>
-                    <td className="table-cell"><EmployeeTypeTag type={emp.employee_type} /></td>
-                    <td className="table-cell">{formatCurrency(emp.daily_rate)}</td>
+                    <td className="table-cell"><EmployeeTypeTag type={emp.employee_type} salaryType={emp.salary_type} /></td>
+                    <td className="table-cell">
+                      {emp.salary_type === 'monthly'
+                        ? <span className="text-purple-700 font-medium">{formatCurrency(emp.monthly_salary)}<span className="text-xs text-gray-400">/เดือน</span></span>
+                        : <span>{formatCurrency(emp.daily_rate)}<span className="text-xs text-gray-400">/วัน</span></span>}
+                    </td>
                     <td className="table-cell">{formatCurrency(emp.ot_rate)}</td>
                     <td className="table-cell">{emp.commission_rate || 0}%</td>
                     <td className="table-cell text-gray-500">{emp.phone || '-'}</td>

@@ -109,6 +109,8 @@ export async function POST() {
     await run('ALTER TABLE attendance ADD COLUMN cash_advance REAL DEFAULT 0', 'attendance.cash_advance')
     await run('ALTER TABLE attendance ADD COLUMN net_pay REAL DEFAULT 0', 'attendance.net_pay')
     await run('ALTER TABLE attendance ADD COLUMN approved INTEGER DEFAULT 0', 'attendance.approved')
+    await run("ALTER TABLE employees ADD COLUMN salary_type TEXT DEFAULT 'daily'", 'employees.salary_type')
+    await run('ALTER TABLE employees ADD COLUMN monthly_salary REAL DEFAULT 0', 'employees.monthly_salary')
 
     return Response.json({ ok: true, results })
   } catch (error) {

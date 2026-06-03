@@ -29,8 +29,8 @@ export default function NewEmployeePage() {
   const streamRef = useRef<MediaStream | null>(null)
 
   const [form, setForm] = useState({
-    name: '', employee_type: 'kitchen', sales_point_id: '',
-    daily_rate: 350, ot_rate: 50, commission_rate: 0, phone: '',
+    name: '', employee_type: 'kitchen', salary_type: 'daily', sales_point_id: '',
+    daily_rate: 350, monthly_salary: 15000, ot_rate: 50, commission_rate: 0, phone: '',
   })
   const [salesPoints, setSalesPoints] = useState<SalesPoint[]>([])
   const [loading, setLoading] = useState(false)
@@ -121,6 +121,8 @@ export default function NewEmployeePage() {
           face_photo: photoDataUrl || undefined,
           qr_code: qrCode || undefined,
           sales_point_id: form.employee_type === 'sales' ? form.sales_point_id : undefined,
+          monthly_salary: form.salary_type === 'monthly' ? form.monthly_salary : 0,
+          daily_rate: form.salary_type === 'monthly' ? 0 : form.daily_rate,
         }),
       })
       const data = await res.json() as any
@@ -147,12 +149,28 @@ export default function NewEmployeePage() {
               onChange={e => setForm({ ...form, name: e.target.value })} placeholder="เช่น สมชาย ใจดี" required />
           </div>
           <div>
-            <label className="label">ประเภทพนักงาน *</label>
+            <label className="label">ตำแหน่งงาน *</label>
             <select className="input-field" value={form.employee_type}
               onChange={e => setForm({ ...form, employee_type: e.target.value })}>
               <option value="kitchen">ครัวกลาง</option>
               <option value="sales">พนักงานขายหน้าร้าน</option>
             </select>
+          </div>
+          <div>
+            <label className="label">ประเภทรายได้ *</label>
+            <div className="grid grid-cols-2 gap-3">
+              {(['daily', 'monthly'] as const).map(st => (
+                <label key={st}
+                  className={`flex items-center gap-3 border-2 rounded-xl p-3 cursor-pointer transition-colors ${form.salary_type === st ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                  <input type="radio" name="salary_type" value={st} checked={form.salary_type === st}
+                    onChange={() => setForm({ ...form, salary_type: st })} className="accent-blue-600" />
+                  <div>
+                    <p className="font-medium text-sm">{st === 'daily' ? 'รายวัน' : 'รายเดือน'}</p>
+                    <p className="text-xs text-gray-400">{st === 'daily' ? 'คิดตามวันที่มาทำงาน' : 'เงินเดือนคงที่ต่อเดือน'}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
           </div>
           {form.employee_type === 'sales' && (
             <div>
@@ -174,26 +192,49 @@ export default function NewEmployeePage() {
         {/* Salary */}
         <div className="card space-y-4">
           <h2 className="font-semibold text-gray-900 pb-2 border-b">โครงสร้างรายได้</h2>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="label">ค่าแรงรายวัน (฿)</label>
-              <input type="number" className="input-field" value={form.daily_rate}
-                onChange={e => setForm({ ...form, daily_rate: Number(e.target.value) })} min={0} step={50} />
-            </div>
-            <div>
-              <label className="label">ค่า OT/ชั่วโมง (฿)</label>
-              <input type="number" className="input-field" value={form.ot_rate}
-                onChange={e => setForm({ ...form, ot_rate: Number(e.target.value) })} min={0} step={10} />
-            </div>
-            <div>
-              <label className="label">ค่าคอมมิชชั่น (%)</label>
-              <input type="number" className="input-field" value={form.commission_rate}
-                onChange={e => setForm({ ...form, commission_rate: Number(e.target.value) })} min={0} max={100} step={0.5} />
-            </div>
-          </div>
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-700">
-            รายได้ = ค่าแรงรายวัน + (OT × ชั่วโมง OT) + (ยอดขาย × {form.commission_rate}%)
-          </div>
+
+          {form.salary_type === 'monthly' ? (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="label">เงินเดือน/เดือน (฿)</label>
+                  <input type="number" className="input-field" value={form.monthly_salary}
+                    onChange={e => setForm({ ...form, monthly_salary: Number(e.target.value) })} min={0} step={500} />
+                </div>
+                <div>
+                  <label className="label">ค่า OT/ชั่วโมง (฿)</label>
+                  <input type="number" className="input-field" value={form.ot_rate}
+                    onChange={e => setForm({ ...form, ot_rate: Number(e.target.value) })} min={0} step={10} />
+                </div>
+              </div>
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 text-sm text-purple-700">
+                รายได้ = เงินเดือน {form.monthly_salary.toLocaleString()} ฿/เดือน + (OT × ชั่วโมง OT)
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="label">ค่าแรงรายวัน (฿)</label>
+                  <input type="number" className="input-field" value={form.daily_rate}
+                    onChange={e => setForm({ ...form, daily_rate: Number(e.target.value) })} min={0} step={50} />
+                </div>
+                <div>
+                  <label className="label">ค่า OT/ชั่วโมง (฿)</label>
+                  <input type="number" className="input-field" value={form.ot_rate}
+                    onChange={e => setForm({ ...form, ot_rate: Number(e.target.value) })} min={0} step={10} />
+                </div>
+                <div>
+                  <label className="label">ค่าคอมมิชชั่น (%)</label>
+                  <input type="number" className="input-field" value={form.commission_rate}
+                    onChange={e => setForm({ ...form, commission_rate: Number(e.target.value) })} min={0} max={100} step={0.5} />
+                </div>
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-700">
+                รายได้ = ค่าแรงรายวัน + (OT × ชั่วโมง OT) + (ยอดขาย × {form.commission_rate}%)
+              </div>
+            </>
+          )}
         </div>
 
         {/* Photo / Face */}
