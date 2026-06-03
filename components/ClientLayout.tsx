@@ -1,8 +1,48 @@
 'use client'
 
+import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import Sidebar from './Sidebar'
+
+const PAGE_LABELS: Record<string, string> = {
+  '/employees': 'พนักงาน',
+  '/employees/new': 'เพิ่มพนักงาน',
+  '/attendance': 'บันทึกการเข้างาน',
+  '/attendance/scan': 'สแกนเข้างาน',
+  '/attendance/daily-approval': 'อนุมัติเวลางานรายวัน',
+  '/sales': 'ยอดขาย',
+  '/payroll': 'เงินเดือน',
+  '/shifts': 'ตั้งค่ากะงาน',
+  '/payroll-settings': 'ตั้งค่าเงินเดือน',
+  '/admin/leave': 'อนุมัติใบลา',
+  '/admin/manage': 'จัดการระบบ',
+  '/branches': 'จัดการสาขา',
+}
+
+function getBreadcrumbs(pathname: string): { label: string; href: string }[] {
+  const crumbs: { label: string; href: string }[] = [{ label: 'หน้าหลัก', href: '/' }]
+  if (pathname === '/') return crumbs
+
+  // dynamic /employees/[id]
+  const empMatch = pathname.match(/^\/employees\/([^/]+)$/)
+  if (empMatch && empMatch[1] !== 'new') {
+    crumbs.push({ label: 'พนักงาน', href: '/employees' })
+    crumbs.push({ label: 'แก้ไขพนักงาน', href: pathname })
+    return crumbs
+  }
+
+  const label = PAGE_LABELS[pathname]
+  if (label) {
+    // second-level pages: add parent
+    if (pathname.startsWith('/attendance/')) crumbs.push({ label: 'บันทึกการเข้างาน', href: '/attendance' })
+    if (pathname.startsWith('/admin/')) crumbs.push({ label: 'จัดการระบบ', href: '/admin/manage' })
+    if (pathname === '/employees/new') crumbs.push({ label: 'พนักงาน', href: '/employees' })
+    crumbs.push({ label, href: pathname })
+  }
+
+  return crumbs
+}
 
 // Map each path to its "parent" for browser-back interception
 function getParentRoute(pathname: string): string {
@@ -10,7 +50,7 @@ function getParentRoute(pathname: string): string {
   if (pathname === '/attendance/daily-approval' || pathname === '/attendance/scan') return '/attendance'
   if (/^\/employee\/.+/.test(pathname)) return '/employee'
   if (pathname !== '/') return '/'
-  return '/'   // already at root — just block
+  return '/'
 }
 
 interface AuthState { token: string; role: string; username: string; display_name: string }
@@ -176,13 +216,64 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     return <>{children}</>
   }
 
+  const crumbs = getBreadcrumbs(pathname ?? '/')
+  const isHome = pathname === '/'
+
   return (
     <AdminLoginGate>
       <div className="flex min-h-screen">
         <Sidebar />
-        <main className="flex-1 ml-64 p-6 min-h-screen">
-          {children}
-        </main>
+        <div className="flex-1 ml-64 flex flex-col min-h-screen">
+          {/* Top bar: breadcrumb + home button — sticky on every admin page */}
+          <div className="sticky top-0 z-40 bg-white border-b border-gray-200 px-6 py-2.5 flex items-center justify-between gap-4">
+            {/* Breadcrumb */}
+            <nav className="flex items-center gap-1.5 text-sm min-w-0 overflow-hidden">
+              {crumbs.map((crumb, i) => (
+                <span key={crumb.href} className="flex items-center gap-1.5 min-w-0">
+                  {i > 0 && (
+                    <svg className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  )}
+                  {i < crumbs.length - 1 ? (
+                    <Link href={crumb.href} className="text-blue-600 hover:text-blue-800 font-medium truncate">
+                      {i === 0 && (
+                        <svg className="w-4 h-4 inline-block mr-1 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                        </svg>
+                      )}
+                      {crumb.label}
+                    </Link>
+                  ) : (
+                    <span className="text-gray-500 truncate">
+                      {i === 0 && (
+                        <svg className="w-4 h-4 inline-block mr-1 -mt-0.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                        </svg>
+                      )}
+                      {crumb.label}
+                    </span>
+                  )}
+                </span>
+              ))}
+            </nav>
+
+            {/* Back-to-home button: shown on all non-home pages */}
+            {!isHome && (
+              <Link href="/"
+                className="flex-shrink-0 flex items-center gap-1.5 text-sm font-medium text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                </svg>
+                หน้าหลัก
+              </Link>
+            )}
+          </div>
+
+          <main className="flex-1 p-6">
+            {children}
+          </main>
+        </div>
       </div>
     </AdminLoginGate>
   )
