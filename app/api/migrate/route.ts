@@ -103,6 +103,13 @@ export async function POST() {
       ('uniform_deposit', '0', 'ค่ามัดจำเครื่องแบบ', 'deduction', '฿')
     `, 'payroll_settings seed')
 
+    await run("ALTER TABLE attendance ADD COLUMN day_type TEXT DEFAULT 'normal'", 'attendance.day_type')
+    await run('ALTER TABLE attendance ADD COLUMN food_allowance REAL DEFAULT 0', 'attendance.food_allowance')
+    await run('ALTER TABLE attendance ADD COLUMN split_shift_allowance REAL DEFAULT 0', 'attendance.split_shift_allowance')
+    await run('ALTER TABLE attendance ADD COLUMN cash_advance REAL DEFAULT 0', 'attendance.cash_advance')
+    await run('ALTER TABLE attendance ADD COLUMN net_pay REAL DEFAULT 0', 'attendance.net_pay')
+    await run('ALTER TABLE attendance ADD COLUMN approved INTEGER DEFAULT 0', 'attendance.approved')
+
     return Response.json({ ok: true, results })
   } catch (error) {
     return Response.json({ error: String(error) }, { status: 500 })
