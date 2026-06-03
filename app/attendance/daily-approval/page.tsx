@@ -3,6 +3,7 @@
 export const runtime = 'edge'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 
 interface ShiftInfo {
   id: string; name: string; start_time: string; end_time: string
@@ -109,6 +110,7 @@ function computeRow(row: AttendanceRow, settings: Record<string, string>): Atten
 }
 
 export default function DailyApprovalPage() {
+  const router = useRouter()
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' })
   const [date, setDate] = useState(today)
   const [rows, setRows] = useState<AttendanceRow[]>([])
@@ -255,9 +257,16 @@ export default function DailyApprovalPage() {
     <div className="space-y-4">
       {/* Page header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">อนุมัติเวลางานรายวัน</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Daily Staff Timesheet Approval</p>
+        <div className="flex items-center gap-3">
+          <button onClick={() => router.push('/attendance')} className="text-gray-400 hover:text-gray-600 transition-colors group">
+            <svg className="w-5 h-5 group-hover:-translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">อนุมัติเวลางานรายวัน</h1>
+            <p className="text-gray-500 text-sm mt-0.5">Daily Staff Timesheet Approval</p>
+          </div>
         </div>
         {savedMsg && (
           <span className="text-sm font-medium text-green-700 bg-green-50 border border-green-200 px-3 py-1.5 rounded-lg">

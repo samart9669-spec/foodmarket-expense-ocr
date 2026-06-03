@@ -1,8 +1,17 @@
 'use client'
 
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import Sidebar from './Sidebar'
+
+// Map each path to its "parent" for browser-back interception
+function getParentRoute(pathname: string): string {
+  if (/^\/employees\/.+/.test(pathname)) return '/employees'
+  if (pathname === '/attendance/daily-approval' || pathname === '/attendance/scan') return '/attendance'
+  if (/^\/employee\/.+/.test(pathname)) return '/employee'
+  if (pathname !== '/') return '/'
+  return '/'   // already at root — just block
+}
 
 interface AuthState { token: string; role: string; username: string; display_name: string }
 
@@ -141,7 +150,27 @@ function AdminLoginGate({ children }: { children: React.ReactNode }) {
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const router = useRouter()
   const isNoSidebar = pathname?.startsWith('/kiosk') || pathname?.startsWith('/employee')
+
+  // Intercept browser back button: navigate to parent route instead of leaving the app
+  useEffect(() => {
+    // Push an extra history entry so there is always something to "absorb" browser back
+    history.pushState(null, '', window.location.href)
+
+    const handlePopState = () => {
+      // Immediately push state again to re-create the buffer
+      history.pushState(null, '', window.location.href)
+      const current = window.location.pathname
+      const parent = getParentRoute(current)
+      // Only navigate if we'd actually move (avoid loop at '/')
+      if (parent !== current) router.push(parent)
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   if (isNoSidebar) {
     return <>{children}</>
