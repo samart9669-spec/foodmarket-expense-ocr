@@ -103,6 +103,24 @@ export function getSalaryTypeLabel(salaryType: string): string {
   return salaryType === 'monthly' ? 'รายเดือน' : 'รายวัน'
 }
 
+export function getAdminRole(): string {
+  try {
+    const auth = JSON.parse(sessionStorage.getItem('adminAuth') || '{}')
+    return auth.role || ''
+  } catch {
+    return ''
+  }
+}
+
+export function getAuthHeaders(): Record<string, string> {
+  try {
+    const auth = JSON.parse(sessionStorage.getItem('adminAuth') || '{}')
+    return auth.token ? { 'Authorization': `Bearer ${auth.token}` } : {}
+  } catch {
+    return {}
+  }
+}
+
 export function getStatusLabel(status: string): string {
   const labels: Record<string, string> = { present: 'มาทำงาน', absent: 'ขาดงาน', late: 'มาสาย', half: 'ครึ่งวัน' }
   return labels[status] || status

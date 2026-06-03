@@ -4,6 +4,7 @@ export const runtime = 'edge'
 
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { getAdminRole, getAuthHeaders } from '@/lib/utils'
 
 interface SalesPoint { id: string; name: string }
 
@@ -27,6 +28,7 @@ export default function NewEmployeePage() {
   const router = useRouter()
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const role = typeof window !== 'undefined' ? getAdminRole() : ''
 
   const [form, setForm] = useState({
     name: '', job_title: 'kitchen', employee_type: 'kitchen', salary_type: 'daily',
@@ -46,6 +48,8 @@ export default function NewEmployeePage() {
   const [qrCode, setQrCode] = useState('')
 
   useEffect(() => {
+    const r = getAdminRole()
+    if (!r || r === 'viewer' || r === 'admin') { router.replace('/employees'); return }
     fetch('/api/sales-points').then(r => r.json()).then((d: any) => setSalesPoints(d.salesPoints || []))
   }, [])
 
@@ -129,7 +133,7 @@ export default function NewEmployeePage() {
       const actualJobTitle = positionPreset === 'other' ? jobTitleCustom.trim() : form.job_title
       const res = await fetch('/api/employees', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
           ...form,
           job_title: actualJobTitle,
@@ -168,8 +172,8 @@ export default function NewEmployeePage() {
             <select className="input-field" value={positionPreset} onChange={e => handlePositionChange(e.target.value)}>
               <option value="kitchen">ครัวกลาง</option>
               <option value="sales">พนักงานขายหน้าร้าน</option>
-              <option value="head_office">Head Office</option>
-              <option value="other">อื่นๆ ระบุเอง</option>
+              {role === 'superadmin' && <option value="head_office">Head Office</option>}
+              {role === 'superadmin' && <option value="other">อื่นๆ ระบุเอง</option>}
             </select>
             {positionPreset === 'other' && (
               <input

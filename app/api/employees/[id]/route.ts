@@ -1,4 +1,5 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
+import { getRoleFromRequest, isOfficeEmployee } from '@/lib/auth-server'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -11,10 +12,20 @@ export async function GET(
     const { env } = getRequestContext()
     const db = env.DB
 
-    const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(params.id).first()
+    const role = await getRoleFromRequest(request, db)
+    if (role === 'viewer' || role === 'admin') {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(params.id).first<any>()
     if (!employee) {
       return Response.json({ error: 'Employee not found' }, { status: 404 })
     }
+
+    if (role === 'manager' && isOfficeEmployee(employee.job_title)) {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     return Response.json({ employee })
   } catch (error) {
     console.error('GET /api/employees/[id] error:', error)
@@ -29,6 +40,11 @@ export async function PUT(
   try {
     const { env } = getRequestContext()
     const db = env.DB
+
+    const role = await getRoleFromRequest(request, db)
+    if (!role || role === 'viewer' || role === 'admin') {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
 
     const body = await request.json() as {
       name?: string
@@ -45,14 +61,22 @@ export async function PUT(
       is_active?: number
     }
 
-    const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(params.id).first()
+    const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(params.id).first<any>()
     if (!employee) {
       return Response.json({ error: 'Employee not found' }, { status: 404 })
     }
 
+    // manager cannot edit office employees
+    if (role === 'manager' && isOfficeEmployee(employee.job_title)) {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    // manager cannot promote a non-office employee to office
+    if (role === 'manager' && body.job_title !== undefined && isOfficeEmployee(body.job_title)) {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const { name, job_title, salary_type, sales_point_id, daily_rate, monthly_salary, ot_rate, commission_rate, face_descriptor, qr_code, phone, is_active } = body
 
-    // Derive employee_type from job_title when job_title is being updated
     const employee_type = job_title !== undefined ? (job_title === 'sales' ? 'sales' : 'kitchen') : undefined
 
     await db.prepare(`
@@ -94,9 +118,18 @@ export async function DELETE(
     const { env } = getRequestContext()
     const db = env.DB
 
-    const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(params.id).first()
+    const role = await getRoleFromRequest(request, db)
+    if (!role || role === 'viewer' || role === 'admin') {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(params.id).first<any>()
     if (!employee) {
       return Response.json({ error: 'Employee not found' }, { status: 404 })
+    }
+
+    if (role === 'manager' && isOfficeEmployee(employee.job_title)) {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     await db.prepare('UPDATE employees SET is_active = 0 WHERE id = ?').bind(params.id).run()

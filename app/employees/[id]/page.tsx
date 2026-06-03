@@ -4,6 +4,7 @@ export const runtime = 'edge'
 
 import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
+import { getAdminRole, getAuthHeaders } from '@/lib/utils'
 
 interface Employee {
   id: string; name: string; employee_type: string; job_title: string | null; salary_type: string
@@ -27,16 +28,21 @@ export default function EmployeeDetailPage() {
   const [success, setSuccess] = useState('')
   const [positionPreset, setPositionPreset] = useState('kitchen')
   const [jobTitleCustom, setJobTitleCustom] = useState('')
+  const [forbidden, setForbidden] = useState(false)
+  const role = typeof window !== 'undefined' ? getAdminRole() : ''
   const [form, setForm] = useState({
     name: '', job_title: 'kitchen', employee_type: 'kitchen', salary_type: 'daily',
     sales_point_id: '', daily_rate: 350, monthly_salary: 0, ot_rate: 50, commission_rate: 0, phone: '',
   })
 
   useEffect(() => {
+    const r = getAdminRole()
+    if (!r || r === 'viewer' || r === 'admin') { router.replace('/employees'); return }
     Promise.all([
-      fetch(`/api/employees/${id}`).then(r => r.json()),
+      fetch(`/api/employees/${id}`, { headers: getAuthHeaders() }).then(r => r.json()),
       fetch('/api/sales-points').then(r => r.json()),
     ]).then(([empData, spData]: [any, any]) => {
+      if (empData.error === 'Forbidden') { setForbidden(true); setLoading(false); return }
       if (empData.employee) {
         const emp = empData.employee
         setEmployee(emp)
@@ -78,7 +84,7 @@ export default function EmployeeDetailPage() {
       const actualJobTitle = positionPreset === 'other' ? jobTitleCustom.trim() : form.job_title
       const res = await fetch(`/api/employees/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
           ...form,
           job_title: actualJobTitle,
@@ -103,6 +109,13 @@ export default function EmployeeDetailPage() {
   }
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full" /></div>
+  if (forbidden) return (
+    <div className="text-center py-12">
+      <p className="text-gray-500 font-medium">ไม่มีสิทธิ์เข้าถึงข้อมูลพนักงานคนนี้</p>
+      <p className="text-sm text-gray-400 mt-1">บัญชีของคุณไม่มีสิทธิ์ดูข้อมูลพนักงาน Office</p>
+      <button onClick={() => router.push('/employees')} className="btn-secondary mt-4">กลับ</button>
+    </div>
+  )
   if (!employee) return <div className="text-center py-12"><p className="text-gray-500">ไม่พบข้อมูลพนักงาน</p><button onClick={() => router.push('/employees')} className="btn-primary mt-4">กลับ</button></div>
 
   return (
@@ -127,8 +140,8 @@ export default function EmployeeDetailPage() {
             <select className="input-field" value={positionPreset} onChange={e => handlePositionChange(e.target.value)}>
               <option value="kitchen">ครัวกลาง</option>
               <option value="sales">พนักงานขายหน้าร้าน</option>
-              <option value="head_office">Head Office</option>
-              <option value="other">อื่นๆ ระบุเอง</option>
+              {role === 'superadmin' && <option value="head_office">Head Office</option>}
+              {role === 'superadmin' && <option value="other">อื่นๆ ระบุเอง</option>}
             </select>
             {positionPreset === 'other' && (
               <input
