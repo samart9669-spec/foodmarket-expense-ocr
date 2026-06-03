@@ -91,10 +91,10 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
                 .withFaceDescriptor()
               if (det) {
                 descriptor = det.descriptor
-                fetch(`/api/employees/${emp.id}`, {
+                fetch('/api/employees/face-descriptor', {
                   method: 'PUT',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ face_descriptor: JSON.stringify(Array.from(descriptor)) }),
+                  body: JSON.stringify({ employee_id: emp.id, face_descriptor: JSON.stringify(Array.from(descriptor)) }),
                 }).catch(() => {})
               }
             } catch {}

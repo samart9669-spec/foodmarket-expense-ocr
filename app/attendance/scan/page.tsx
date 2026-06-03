@@ -55,8 +55,8 @@ export default function AttendanceScanPage() {
   const [scanMode, setScanMode] = useState<'checkin' | 'checkout'>('checkin')
 
   useEffect(() => {
-    fetch('/api/employees').then((r) => r.json()).then((d: any) => setEmployees(d.employees || []))
-    fetch('/api/sales-points').then((r) => r.json()).then((d: any) => setSalesPoints(d.salesPoints || []))
+    fetch('/api/employees').then((r) => r.json()).then((d: any) => setEmployees(d.employees || [])).catch(() => {})
+    fetch('/api/sales-points').then((r) => r.json()).then((d: any) => setSalesPoints(d.salesPoints || [])).catch(() => {})
     const timer = setInterval(() => setCurrentTime(new Date()), 1000)
     return () => clearInterval(timer)
   }, [])

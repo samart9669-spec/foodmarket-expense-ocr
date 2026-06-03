@@ -50,9 +50,9 @@ export default function EmployeeCheckinPage() {
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/employees').then(r => r.json()),
-      fetch('/api/sales-points').then(r => r.json()),
-      fetch('/api/shifts').then(r => r.json()),
+      fetch('/api/employees').then(r => r.json()).catch(() => ({ employees: [] })),
+      fetch('/api/sales-points').then(r => r.json()).catch(() => ({ salesPoints: [] })),
+      fetch('/api/shifts').then(r => r.json()).catch(() => ({ shifts: [] })),
     ]).then(([e, sp, sh]: any) => {
       setEmployees(e.employees || [])
       setSalesPoints(sp.salesPoints || [])
