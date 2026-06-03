@@ -191,7 +191,7 @@ function AdminLoginGate({ children }: { children: React.ReactNode }) {
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
-  const isNoSidebar = pathname?.startsWith('/kiosk') || pathname?.startsWith('/employee')
+  const isNoSidebar = pathname?.startsWith('/kiosk') || pathname === '/employee' || pathname?.startsWith('/employee/')
 
   // Intercept browser back button: navigate to parent route instead of leaving the app
   useEffect(() => {
