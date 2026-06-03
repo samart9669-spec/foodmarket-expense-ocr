@@ -45,7 +45,8 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json() as {
       name: string
-      employee_type: string
+      job_title?: string
+      employee_type?: string
       salary_type?: string
       sales_point_id?: string
       daily_rate?: number
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
 
     const {
       name,
-      employee_type,
+      job_title = '',
       salary_type = 'daily',
       sales_point_id,
       daily_rate = 350,
@@ -73,22 +74,21 @@ export async function POST(request: NextRequest) {
       phone,
     } = body
 
-    if (!name || !employee_type) {
-      return Response.json({ error: 'Name and employee_type are required' }, { status: 400 })
+    if (!name) {
+      return Response.json({ error: 'Name is required' }, { status: 400 })
     }
 
-    if (!['kitchen', 'sales'].includes(employee_type)) {
-      return Response.json({ error: 'Invalid employee_type' }, { status: 400 })
-    }
+    // Derive employee_type from job_title (D1 CHECK constraint only allows 'kitchen'|'sales')
+    const employee_type = job_title === 'sales' ? 'sales' : 'kitchen'
 
     const id = generateId()
     const generatedQR = qr_code || `EMP-${id.substring(0, 8).toUpperCase()}`
 
     await db.prepare(`
-      INSERT INTO employees (id, name, employee_type, salary_type, sales_point_id, daily_rate, monthly_salary, ot_rate, commission_rate, face_descriptor, face_photo, qr_code, phone, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      INSERT INTO employees (id, name, employee_type, job_title, salary_type, sales_point_id, daily_rate, monthly_salary, ot_rate, commission_rate, face_descriptor, face_photo, qr_code, phone, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
     `).bind(
-      id, name, employee_type, salary_type, sales_point_id || null,
+      id, name, employee_type, job_title, salary_type, sales_point_id || null,
       daily_rate, monthly_salary, ot_rate, commission_rate,
       face_descriptor || null, face_photo || null, generatedQR, phone || null
     ).run()

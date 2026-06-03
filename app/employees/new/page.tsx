@@ -29,9 +29,12 @@ export default function NewEmployeePage() {
   const streamRef = useRef<MediaStream | null>(null)
 
   const [form, setForm] = useState({
-    name: '', employee_type: 'kitchen', salary_type: 'daily', sales_point_id: '',
-    daily_rate: 350, monthly_salary: 15000, ot_rate: 50, commission_rate: 0, phone: '',
+    name: '', job_title: 'kitchen', employee_type: 'kitchen', salary_type: 'daily',
+    sales_point_id: '', daily_rate: 350, monthly_salary: 15000, ot_rate: 50,
+    commission_rate: 0, phone: '',
   })
+  const [positionPreset, setPositionPreset] = useState('kitchen')
+  const [jobTitleCustom, setJobTitleCustom] = useState('')
   const [salesPoints, setSalesPoints] = useState<SalesPoint[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -105,6 +108,16 @@ export default function NewEmployeePage() {
     setPhotoDataUrl(null)
   }
 
+  const handlePositionChange = (preset: string) => {
+    setPositionPreset(preset)
+    if (preset !== 'other') {
+      const employeeType = preset === 'sales' ? 'sales' : 'kitchen'
+      setForm(f => ({ ...f, job_title: preset, employee_type: employeeType }))
+    } else {
+      setForm(f => ({ ...f, job_title: '', employee_type: 'kitchen' }))
+    }
+  }
+
   // ── Submit ────────────────────────────────────────────────────────
   const generateQR = () => setQrCode(`EMP-${Date.now().toString(36).toUpperCase()}`)
 
@@ -113,11 +126,13 @@ export default function NewEmployeePage() {
     if (!form.name.trim()) { setError('กรุณากรอกชื่อพนักงาน'); return }
     setLoading(true); setError('')
     try {
+      const actualJobTitle = positionPreset === 'other' ? jobTitleCustom.trim() : form.job_title
       const res = await fetch('/api/employees', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...form,
+          job_title: actualJobTitle,
           face_photo: photoDataUrl || undefined,
           qr_code: qrCode || undefined,
           sales_point_id: form.employee_type === 'sales' ? form.sales_point_id : undefined,
@@ -150,11 +165,22 @@ export default function NewEmployeePage() {
           </div>
           <div>
             <label className="label">ตำแหน่งงาน *</label>
-            <select className="input-field" value={form.employee_type}
-              onChange={e => setForm({ ...form, employee_type: e.target.value })}>
+            <select className="input-field" value={positionPreset} onChange={e => handlePositionChange(e.target.value)}>
               <option value="kitchen">ครัวกลาง</option>
               <option value="sales">พนักงานขายหน้าร้าน</option>
+              <option value="head_office">Head Office</option>
+              <option value="other">อื่นๆ ระบุเอง</option>
             </select>
+            {positionPreset === 'other' && (
+              <input
+                type="text"
+                className="input-field mt-2"
+                placeholder="ระบุตำแหน่งงาน เช่น ผู้จัดการ, บัญชี..."
+                value={jobTitleCustom}
+                onChange={e => setJobTitleCustom(e.target.value)}
+                required
+              />
+            )}
           </div>
           <div>
             <label className="label">ประเภทรายได้ *</label>
@@ -172,7 +198,7 @@ export default function NewEmployeePage() {
               ))}
             </div>
           </div>
-          {form.employee_type === 'sales' && (
+          {positionPreset === 'sales' && (
             <div>
               <label className="label">จุดขายประจำ</label>
               <select className="input-field" value={form.sales_point_id}

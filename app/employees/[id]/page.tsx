@@ -6,12 +6,14 @@ import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 
 interface Employee {
-  id: string; name: string; employee_type: string; salary_type: string
+  id: string; name: string; employee_type: string; job_title: string | null; salary_type: string
   sales_point_id: string | null; daily_rate: number; monthly_salary: number
   ot_rate: number; commission_rate: number; phone: string | null
   is_active: number; qr_code: string | null; face_descriptor: string | null; created_at: string
 }
 interface SalesPoint { id: string; name: string }
+
+const PRESET_POSITIONS = ['kitchen', 'sales', 'head_office']
 
 export default function EmployeeDetailPage() {
   const router = useRouter()
@@ -23,9 +25,11 @@ export default function EmployeeDetailPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [positionPreset, setPositionPreset] = useState('kitchen')
+  const [jobTitleCustom, setJobTitleCustom] = useState('')
   const [form, setForm] = useState({
-    name: '', employee_type: 'kitchen', salary_type: 'daily', sales_point_id: '',
-    daily_rate: 350, monthly_salary: 15000, ot_rate: 50, commission_rate: 0, phone: '',
+    name: '', job_title: 'kitchen', employee_type: 'kitchen', salary_type: 'daily',
+    sales_point_id: '', daily_rate: 350, monthly_salary: 0, ot_rate: 50, commission_rate: 0, phone: '',
   })
 
   useEffect(() => {
@@ -36,8 +40,13 @@ export default function EmployeeDetailPage() {
       if (empData.employee) {
         const emp = empData.employee
         setEmployee(emp)
+        const storedTitle = emp.job_title || emp.employee_type || 'kitchen'
+        const preset = PRESET_POSITIONS.includes(storedTitle) ? storedTitle : 'other'
+        setPositionPreset(preset)
+        if (preset === 'other') setJobTitleCustom(storedTitle)
         setForm({
           name: emp.name,
+          job_title: storedTitle,
           employee_type: emp.employee_type,
           salary_type: emp.salary_type || 'daily',
           sales_point_id: emp.sales_point_id || '',
@@ -53,15 +62,27 @@ export default function EmployeeDetailPage() {
     })
   }, [id])
 
+  const handlePositionChange = (preset: string) => {
+    setPositionPreset(preset)
+    if (preset !== 'other') {
+      const employeeType = preset === 'sales' ? 'sales' : 'kitchen'
+      setForm(f => ({ ...f, job_title: preset, employee_type: employeeType }))
+    } else {
+      setForm(f => ({ ...f, job_title: '', employee_type: 'kitchen' }))
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true); setError(''); setSuccess('')
     try {
+      const actualJobTitle = positionPreset === 'other' ? jobTitleCustom.trim() : form.job_title
       const res = await fetch(`/api/employees/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...form,
-          sales_point_id: form.employee_type === 'sales' ? form.sales_point_id : null,
+          job_title: actualJobTitle,
+          sales_point_id: positionPreset === 'sales' ? form.sales_point_id : null,
           monthly_salary: form.salary_type === 'monthly' ? form.monthly_salary : 0,
           daily_rate: form.salary_type === 'monthly' ? 0 : form.daily_rate,
         }),
@@ -103,10 +124,21 @@ export default function EmployeeDetailPage() {
           </div>
           <div>
             <label className="label">ตำแหน่งงาน</label>
-            <select className="input-field" value={form.employee_type} onChange={e => setForm({ ...form, employee_type: e.target.value })}>
+            <select className="input-field" value={positionPreset} onChange={e => handlePositionChange(e.target.value)}>
               <option value="kitchen">ครัวกลาง</option>
               <option value="sales">พนักงานขายหน้าร้าน</option>
+              <option value="head_office">Head Office</option>
+              <option value="other">อื่นๆ ระบุเอง</option>
             </select>
+            {positionPreset === 'other' && (
+              <input
+                type="text"
+                className="input-field mt-2"
+                placeholder="ระบุตำแหน่งงาน เช่น ผู้จัดการ, บัญชี..."
+                value={jobTitleCustom}
+                onChange={e => setJobTitleCustom(e.target.value)}
+              />
+            )}
           </div>
           <div>
             <label className="label">ประเภทรายได้</label>
@@ -124,7 +156,7 @@ export default function EmployeeDetailPage() {
               ))}
             </div>
           </div>
-          {form.employee_type === 'sales' && (
+          {positionPreset === 'sales' && (
             <div>
               <label className="label">จุดขายประจำ</label>
               <select className="input-field" value={form.sales_point_id} onChange={e => setForm({ ...form, sales_point_id: e.target.value })}>

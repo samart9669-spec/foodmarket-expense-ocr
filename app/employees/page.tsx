@@ -11,6 +11,7 @@ interface Employee {
   id: string
   name: string
   employee_type: string
+  job_title: string | null
   salary_type: string
   daily_rate: number
   monthly_salary: number
@@ -170,7 +171,7 @@ export default function EmployeesPage() {
                       )}
                     </td>
                     <td className="table-cell font-medium text-gray-900">{emp.name}</td>
-                    <td className="table-cell"><EmployeeTypeTag type={emp.employee_type} salaryType={emp.salary_type} /></td>
+                    <td className="table-cell"><EmployeeTypeTag type={emp.employee_type} jobTitle={emp.job_title || undefined} salaryType={emp.salary_type} /></td>
                     <td className="table-cell">
                       {emp.salary_type === 'monthly'
                         ? <span className="text-purple-700 font-medium">{formatCurrency(emp.monthly_salary)}<span className="text-xs text-gray-400">/เดือน</span></span>

@@ -32,7 +32,7 @@ export async function PUT(
 
     const body = await request.json() as {
       name?: string
-      employee_type?: string
+      job_title?: string
       salary_type?: string
       sales_point_id?: string
       daily_rate?: number
@@ -50,12 +50,16 @@ export async function PUT(
       return Response.json({ error: 'Employee not found' }, { status: 404 })
     }
 
-    const { name, employee_type, salary_type, sales_point_id, daily_rate, monthly_salary, ot_rate, commission_rate, face_descriptor, qr_code, phone, is_active } = body
+    const { name, job_title, salary_type, sales_point_id, daily_rate, monthly_salary, ot_rate, commission_rate, face_descriptor, qr_code, phone, is_active } = body
+
+    // Derive employee_type from job_title when job_title is being updated
+    const employee_type = job_title !== undefined ? (job_title === 'sales' ? 'sales' : 'kitchen') : undefined
 
     await db.prepare(`
       UPDATE employees SET
         name = COALESCE(?, name),
         employee_type = COALESCE(?, employee_type),
+        job_title = COALESCE(?, job_title),
         salary_type = COALESCE(?, salary_type),
         sales_point_id = COALESCE(?, sales_point_id),
         daily_rate = COALESCE(?, daily_rate),
@@ -68,7 +72,7 @@ export async function PUT(
         is_active = COALESCE(?, is_active)
       WHERE id = ?
     `).bind(
-      name ?? null, employee_type ?? null, salary_type ?? null, sales_point_id ?? null,
+      name ?? null, employee_type ?? null, job_title ?? null, salary_type ?? null, sales_point_id ?? null,
       daily_rate ?? null, monthly_salary ?? null, ot_rate ?? null, commission_rate ?? null,
       face_descriptor ?? null, qr_code ?? null, phone ?? null,
       is_active ?? null, params.id
