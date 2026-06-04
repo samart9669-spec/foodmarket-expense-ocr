@@ -6,32 +6,54 @@ import { useState, useEffect } from 'react'
 
 interface AttendanceRecord {
   id: string
+  employee_id: string
   employee_name: string
   employee_type: string
+  employee_code: string | null
+  primary_point_name: string | null
+  sales_point_name: string | null
+  shift_name: string | null
+  shift_start: string | null
+  shift_end: string | null
   check_in: string | null
   check_out: string | null
   status: string
-  sales_point_name: string | null
+  regular_hours: number
+  ot_hours: number
+  daily_rate: number
+  ot_rate: number
+}
+
+interface CostByPoint {
+  point_name: string
+  cost: number
+  headcount: number
 }
 
 interface DashboardData {
   total_employees: number
   today_attendance: number
+  today_sales_total: number
+  today_labor_cost: number
   pending_payroll: number
   recent_attendance: AttendanceRecord[]
   attendance_by_type: Array<{ employee_type: string; count: number }>
+  cost_by_point: CostByPoint[]
+  today: string
 }
 
-const LABOR_COSTS = [
-  { name: 'ครัวกลาง (Central Kitchen)', pct: 34, thb: 11000, color: 'bg-green-500', note: 'กะเตรียมวัตถุดิบและจัดส่งสาขา' },
-  { name: 'สาขา T21 Asoke', pct: 23, thb: 7500, color: 'bg-blue-500', note: 'ช่วง Peak เที่ยงและเย็น ยอดขายหน้าร้านสูง' },
-  { name: 'สาขา Fashion Island', pct: 19, thb: 6200, color: 'bg-blue-400', note: 'ยอดคงที่ตามกระแสห้าง' },
-  { name: 'สาขา Esplanade', pct: 15, thb: 4800, color: 'bg-sky-400', note: 'ยอดปกติ' },
-  { name: 'สำนักงานส่วนกลาง (Office)', pct: 9, thb: 3000, color: 'bg-purple-500', note: 'บัญชี, จัดซื้อ, และบริหารแบรนด์' },
-]
+const BRANCH_OPTIONS = ['ทั้งหมด', 'จุดขาย 1', 'จุดขาย 2', 'จุดขาย 3']
+const GROUP_OPTIONS = ['ทั้งหมด', 'ฟรอนต์ (หน้าร้าน)', 'ครัว']
 
-const BRANCH_OPTIONS = ['ทั้งหมด', 'T21 Asoke', 'Fashion Island', 'Esplanade', 'ครัวกลาง']
-const GROUP_OPTIONS = ['หน้าร้าน (7-8 สาขา)', 'ครัวกลาง', 'สำนักงาน', 'ทั้งหมด']
+const CHART_COLORS = [
+  'bg-green-500',
+  'bg-blue-500',
+  'bg-blue-400',
+  'bg-sky-400',
+  'bg-purple-500',
+  'bg-orange-400',
+  'bg-teal-400',
+]
 
 function formatTime(dt: string | null): string {
   if (!dt) return '-'
@@ -47,16 +69,16 @@ function getInitials(name: string): string {
   return name.slice(0, 2)
 }
 
-function getShiftLabel(type: string): string {
-  if (type === 'kitchen') return 'Line Cook'
-  if (type === 'sales') return 'Server'
+function getTypeLabel(type: string): string {
+  if (type === 'kitchen') return 'ครัว'
+  if (type === 'sales') return 'ฟรอนต์'
   return 'Staff'
 }
 
-function getAvatarColor(idx: number): string {
-  const colors = ['bg-blue-500', 'bg-pink-500', 'bg-teal-500', 'bg-orange-500', 'bg-purple-500', 'bg-cyan-500']
-  return colors[idx % colors.length]
-}
+const AVATAR_COLORS = [
+  'bg-blue-500', 'bg-pink-500', 'bg-teal-500',
+  'bg-orange-500', 'bg-purple-500', 'bg-cyan-500',
+]
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null)
@@ -77,24 +99,24 @@ export default function DashboardPage() {
       .finally(() => setLoading(false))
   }, [])
 
-  const frontCount = data?.attendance_by_type?.find(t => t.employee_type === 'sales')?.count ?? 0
   const kitchenCount = data?.attendance_by_type?.find(t => t.employee_type === 'kitchen')?.count ?? 0
-  const officeCount = data?.attendance_by_type?.find(t => t.employee_type === 'office')?.count ?? 0
-  const totalCost = 32500
+  const salesCount   = data?.attendance_by_type?.find(t => t.employee_type === 'sales')?.count ?? 0
+
+  const totalCostByPoint = data?.cost_by_point?.reduce((s, p) => s + p.cost, 0) ?? 0
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin w-10 h-10 border-4 border-red-600 border-t-transparent rounded-full" />
+        <div className="animate-spin w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full" />
       </div>
     )
   }
 
   return (
     <div className="space-y-5">
-      {/* Filter bar */}
+
+      {/* ─── Filter bar ─── */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-5 py-4 flex flex-wrap items-center gap-4">
-        {/* กลุ่มงาน */}
         <div className="flex items-center gap-3 flex-1 min-w-48">
           <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
             <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -103,11 +125,8 @@ export default function DashboardPage() {
           </div>
           <div className="flex-1">
             <p className="text-xs text-gray-400 mb-0.5">กลุ่มงาน</p>
-            <select
-              value={selectedGroup}
-              onChange={e => setSelectedGroup(e.target.value)}
-              className="w-full text-sm font-medium text-gray-800 bg-transparent border-0 outline-none cursor-pointer"
-            >
+            <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)}
+              className="w-full text-sm font-medium text-gray-800 bg-transparent border-0 outline-none cursor-pointer">
               {GROUP_OPTIONS.map(o => <option key={o}>{o}</option>)}
             </select>
           </div>
@@ -118,7 +137,6 @@ export default function DashboardPage() {
 
         <div className="h-8 w-px bg-gray-200" />
 
-        {/* สาขาปฏิบัติงาน */}
         <div className="flex items-center gap-3 flex-1 min-w-40">
           <div className="w-8 h-8 bg-green-50 rounded-lg flex items-center justify-center flex-shrink-0">
             <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -128,11 +146,8 @@ export default function DashboardPage() {
           </div>
           <div className="flex-1">
             <p className="text-xs text-gray-400 mb-0.5">สาขาปฏิบัติงาน</p>
-            <select
-              value={selectedBranch}
-              onChange={e => setSelectedBranch(e.target.value)}
-              className="w-full text-sm font-medium text-gray-800 bg-transparent border-0 outline-none cursor-pointer"
-            >
+            <select value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}
+              className="w-full text-sm font-medium text-gray-800 bg-transparent border-0 outline-none cursor-pointer">
               {BRANCH_OPTIONS.map(o => <option key={o}>{o}</option>)}
             </select>
           </div>
@@ -143,7 +158,6 @@ export default function DashboardPage() {
 
         <div className="h-8 w-px bg-gray-200" />
 
-        {/* ประจำวันที่ */}
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-purple-50 rounded-lg flex items-center justify-center flex-shrink-0">
             <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -154,15 +168,13 @@ export default function DashboardPage() {
             <p className="text-xs text-gray-400 mb-0.5">ประจำวันที่</p>
             <p className="text-sm font-medium text-gray-800">{todayStr}</p>
           </div>
-          <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
         </div>
       </div>
 
-      {/* Stats cards */}
+      {/* ─── Stat cards ─── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* พนักงานสแกนเข้างานแล้ว */}
+
+        {/* Card 1: พนักงานสแกนเข้างาน */}
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
           <div className="flex items-start justify-between">
             <div className="flex-1">
@@ -174,16 +186,12 @@ export default function DashboardPage() {
               </div>
               <div className="flex flex-wrap items-center gap-3 mt-3">
                 <span className="flex items-center gap-1 text-xs text-gray-500">
-                  <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />
-                  หน้าร้าน {frontCount} คน
+                  <span className="w-2 h-2 rounded-full bg-orange-500 inline-block" />
+                  หน้าร้าน {salesCount} คน
                 </span>
                 <span className="flex items-center gap-1 text-xs text-gray-500">
                   <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
-                  ครัวกลาง {kitchenCount} คน
-                </span>
-                <span className="flex items-center gap-1 text-xs text-gray-500">
-                  <span className="w-2 h-2 rounded-full bg-purple-500 inline-block" />
-                  ออฟฟิส {officeCount} คน
+                  ครัว {kitchenCount} คน
                 </span>
               </div>
             </div>
@@ -195,16 +203,18 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* ต้นทุนค่าแรงสะสมวันนี้ */}
+        {/* Card 2: ต้นทุนค่าแรงสะสมวันนี้ */}
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
           <div className="flex items-start justify-between">
             <div className="flex-1">
               <p className="text-sm text-gray-500 mb-2">ต้นทุนค่าแรงสะสมวันนี้</p>
               <div className="flex items-baseline gap-2">
-                <span className="text-4xl font-bold text-gray-900">{totalCost.toLocaleString('th-TH')}</span>
+                <span className="text-4xl font-bold text-gray-900">
+                  {(data?.today_labor_cost ?? 0).toLocaleString('th-TH', { maximumFractionDigits: 0 })}
+                </span>
                 <span className="text-sm text-gray-400">บาท</span>
               </div>
-              <p className="text-xs text-gray-400 mt-2">คำนวณจากกะงานปกติ + เงินพิเศษ</p>
+              <p className="text-xs text-gray-400 mt-2">คำนวณจากอัตรารายวัน + OT พนักงานที่เข้างานวันนี้</p>
             </div>
             <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center ml-3 flex-shrink-0">
               <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -214,7 +224,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* รายการรอตรวจสอบ (Alerts) */}
+        {/* Card 3: รายการรอตรวจสอบ */}
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
           <div className="flex items-start justify-between">
             <div className="flex-1">
@@ -223,15 +233,15 @@ export default function DashboardPage() {
                 <span className="text-4xl font-bold text-gray-900">{data?.pending_payroll ?? 0}</span>
                 <span className="text-sm text-gray-400">รายการ</span>
               </div>
-              <p className="text-xs text-gray-400 mt-2">ผู้จัดการสาขายังไม่ได้ตรวจสอบเวลา</p>
+              <p className="text-xs text-gray-400 mt-2">เงินเดือนที่ค้างอนุมัติ (pending)</p>
             </div>
-            <div className="flex flex-col items-end justify-between h-full">
+            <div className="flex flex-col items-end justify-between h-full gap-3">
               <div className="w-12 h-12 bg-orange-50 rounded-xl flex items-center justify-center flex-shrink-0">
                 <svg className="w-6 h-6 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
               </div>
-              <button className="text-gray-400 hover:text-gray-600 mt-3">
+              <button className="text-gray-400 hover:text-gray-600">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
@@ -241,11 +251,11 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Labor Cost Allocation */}
+      {/* ─── Labor Cost Allocation ─── */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-sm font-semibold text-gray-800">
-            สัดส่วนต้นทุนค่าแรงประจำวันแยกตามหน่วยงาน (Labor Cost Allocation)
+            สัดส่วนต้นทุนค่าแรงประจำวันแยกตามจุดปฏิบัติงาน (Labor Cost Allocation)
           </h2>
           <button className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 font-medium">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -255,30 +265,46 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        <div className="space-y-4">
-          {LABOR_COSTS.map((dept) => (
-            <div key={dept.name} className="flex items-center gap-3">
-              <div className="w-52 text-sm text-gray-700 font-medium flex-shrink-0 truncate">{dept.name}</div>
-              <div className="flex-1 bg-gray-100 rounded-full h-3 overflow-hidden min-w-20">
-                <div
-                  className={`h-full rounded-full transition-all ${dept.color}`}
-                  style={{ width: `${dept.pct}%` }}
-                />
-              </div>
-              <div className="w-10 text-sm text-gray-700 font-semibold text-right flex-shrink-0">{dept.pct}%</div>
-              <div className="w-28 text-sm text-gray-600 text-right font-medium flex-shrink-0">
-                {dept.thb.toLocaleString()} THB
-              </div>
-              <div className="hidden xl:flex items-center gap-1.5 text-xs text-gray-400 flex-1 min-w-0">
-                <span className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0" />
-                <span className="truncate">{dept.note}</span>
-              </div>
-            </div>
-          ))}
-        </div>
+        {data?.cost_by_point && data.cost_by_point.length > 0 ? (
+          <div className="space-y-4">
+            {data.cost_by_point.map((point, idx) => {
+              const pct = totalCostByPoint > 0
+                ? Math.round((point.cost / totalCostByPoint) * 100)
+                : 0
+              return (
+                <div key={point.point_name} className="flex items-center gap-3">
+                  <div className="w-48 text-sm text-gray-700 font-medium flex-shrink-0 truncate">
+                    {point.point_name}
+                  </div>
+                  <div className="flex-1 bg-gray-100 rounded-full h-3 overflow-hidden min-w-20">
+                    <div
+                      className={`h-full rounded-full transition-all ${CHART_COLORS[idx % CHART_COLORS.length]}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <div className="w-10 text-sm text-gray-700 font-semibold text-right flex-shrink-0">{pct}%</div>
+                  <div className="w-28 text-sm text-gray-600 text-right font-medium flex-shrink-0">
+                    {point.cost.toLocaleString('th-TH', { maximumFractionDigits: 0 })} THB
+                  </div>
+                  <div className="hidden xl:flex items-center gap-1.5 text-xs text-gray-400 flex-1 min-w-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0" />
+                    <span className="truncate">{point.headcount} คน</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="text-center py-10 text-gray-400">
+            <svg className="w-10 h-10 mx-auto mb-2 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+            <p className="text-sm">ยังไม่มีข้อมูลการเข้างานวันนี้</p>
+          </div>
+        )}
       </div>
 
-      {/* Daily Timesheet & Adjustment Management */}
+      {/* ─── Daily Timesheet ─── */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold text-gray-800">
@@ -291,7 +317,7 @@ export default function DashboardPage() {
             <thead>
               <tr className="border-b border-gray-100">
                 <th className="px-3 py-3 text-left text-xs font-medium text-gray-500">รหัสพนักงาน</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500">ชื่อ - ตำแหน่ง</th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500">ชื่อ - ประเภท</th>
                 <th className="px-3 py-3 text-left text-xs font-medium text-gray-500">สังกัดหลัก</th>
                 <th className="px-3 py-3 text-left text-xs font-medium text-gray-500">จุดปฏิบัติงานวันนี้</th>
                 <th className="px-3 py-3 text-left text-xs font-medium text-gray-500">
@@ -304,55 +330,76 @@ export default function DashboardPage() {
                 </th>
                 <th className="px-3 py-3 text-center text-xs font-medium text-gray-500">เงินเพิ่มพิเศษ (฿)</th>
                 <th className="px-3 py-3 text-center text-xs font-medium text-gray-500">เงินหัก/เบิก (฿)</th>
-                <th className="px-3 py-3 text-center text-xs font-medium text-gray-500">การอนุมัติ (HQ)</th>
+                <th className="px-3 py-3 text-center text-xs font-medium text-gray-500">สถานะ</th>
                 <th className="px-3 py-3" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {(data?.recent_attendance ?? []).map((att, idx) => {
-                const isLate = att.status === 'late'
-                const isAbsent = att.status === 'absent'
-                const empId = `EMP-${String(idx + 21).padStart(4, '0')}`
-                const primaryBranch = att.employee_type === 'kitchen' ? 'ครัวกลาง' : (att.sales_point_name ?? 'สาขาหลัก')
-                const todayBranch = att.sales_point_name ?? primaryBranch
-                const isCrossPosted = att.sales_point_name && att.employee_type !== 'kitchen'
-                const barPct = att.check_in ? (att.check_out ? 100 : 60) : 0
+                const empCode = att.employee_code ?? att.employee_id.slice(0, 10).toUpperCase()
+                const primaryBranch = att.primary_point_name ?? '-'
+                const todayBranch = att.sales_point_name ?? att.primary_point_name ?? '-'
+                const isCrossPosted = att.sales_point_name && att.primary_point_name &&
+                  att.sales_point_name !== att.primary_point_name
+                const shiftRange = att.shift_start && att.shift_end
+                  ? `${att.shift_start} - ${att.shift_end}`
+                  : null
+                const barPct = att.check_out ? 100 : (att.check_in ? 60 : 0)
+                const isLate    = att.status === 'late'
+                const isAbsent  = att.status === 'absent'
+                // approved = present + has check_out; pending = present but still in
+                const isApproved = !isAbsent && att.check_out !== null
+                const isPending  = !isAbsent && att.check_out === null
 
                 return (
                   <tr key={att.id} className="hover:bg-gray-50/60 transition-colors">
-                    <td className="px-3 py-4 text-xs text-gray-500 font-mono">{empId}</td>
+
+                    <td className="px-3 py-4 text-xs text-gray-500 font-mono">{empCode}</td>
 
                     <td className="px-3 py-4">
                       <div className="flex items-center gap-2.5">
-                        <div className={`w-9 h-9 rounded-full ${getAvatarColor(idx)} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
+                        <div className={`w-9 h-9 rounded-full ${AVATAR_COLORS[idx % AVATAR_COLORS.length]} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
                           {getInitials(att.employee_name)}
                         </div>
                         <div>
                           <p className="font-medium text-gray-900 whitespace-nowrap">{att.employee_name}</p>
-                          <p className="text-xs text-gray-400">{getShiftLabel(att.employee_type)}</p>
+                          <p className="text-xs text-gray-400">{getTypeLabel(att.employee_type)}</p>
                         </div>
                       </div>
                     </td>
 
                     <td className="px-3 py-4">
-                      <span className="inline-flex px-2.5 py-1 rounded-md text-xs font-medium bg-blue-50 text-blue-700">
-                        {primaryBranch}
-                      </span>
+                      {primaryBranch !== '-' ? (
+                        <span className="inline-flex px-2.5 py-1 rounded-md text-xs font-medium bg-blue-50 text-blue-700">
+                          {primaryBranch}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-300">-</span>
+                      )}
                     </td>
 
                     <td className="px-3 py-4">
-                      <span className={`inline-flex px-2.5 py-1 rounded-md text-xs font-medium ${
-                        isCrossPosted ? 'bg-yellow-50 text-yellow-700' : 'bg-blue-50 text-blue-700'
-                      }`}>
-                        {todayBranch}
-                      </span>
-                      {isCrossPosted && (
-                        <p className="text-xs text-yellow-600 mt-0.5">ย้ายช่วยสาขา</p>
+                      {todayBranch !== '-' ? (
+                        <>
+                          <span className={`inline-flex px-2.5 py-1 rounded-md text-xs font-medium ${
+                            isCrossPosted ? 'bg-yellow-50 text-yellow-700' : 'bg-blue-50 text-blue-700'
+                          }`}>
+                            {todayBranch}
+                          </span>
+                          {isCrossPosted && (
+                            <p className="text-xs text-yellow-600 mt-0.5">ย้ายช่วยสาขา</p>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-xs text-gray-300">-</span>
                       )}
                     </td>
 
                     <td className="px-3 py-4 min-w-44">
-                      <div className="flex items-center gap-1 text-xs text-gray-500 mb-1.5">
+                      {shiftRange && (
+                        <p className="text-xs text-gray-400 mb-1">{shiftRange}</p>
+                      )}
+                      <div className="flex items-center gap-1 text-xs text-gray-600 mb-1.5">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
@@ -360,38 +407,39 @@ export default function DashboardPage() {
                       </div>
                       <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
                         <div
-                          className={`h-1.5 rounded-full transition-all ${
+                          className={`h-1.5 rounded-full ${
                             isAbsent ? 'bg-red-400' : isLate ? 'bg-orange-400' : 'bg-blue-500'
                           }`}
                           style={{ width: `${barPct}%` }}
                         />
                       </div>
                       <p className={`text-xs mt-0.5 ${
-                        isAbsent ? 'text-red-600' : isLate ? 'text-orange-600' : 'text-gray-500'
+                        isAbsent ? 'text-red-600' : isLate ? 'text-orange-500' : 'text-gray-500'
                       }`}>
-                        {isAbsent ? 'ขาดงาน' : isLate ? 'สาย 15 นาที' : 'ตรงเวลา'}
+                        {isAbsent ? 'ขาดงาน' : isLate ? 'สาย' : 'ตรงเวลา'}
                       </p>
                     </td>
 
+                    {/* เงินเพิ่มพิเศษ – ไม่มีใน DB ปล่อยว่างไว้ */}
                     <td className="px-3 py-4 text-center">
                       <div className="mx-auto w-20">
                         <input
-                          type="number"
-                          min="0"
-                          value={bonuses[att.id] ?? 0}
+                          type="number" min="0"
+                          value={bonuses[att.id] ?? ''}
+                          placeholder="0"
                           onChange={e => setBonuses(prev => ({ ...prev, [att.id]: Number(e.target.value) }))}
                           className="w-full text-center text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
                         />
-                        <p className="text-[10px] text-gray-400 mt-0.5">ค่าอาหาร</p>
                       </div>
                     </td>
 
+                    {/* เงินหัก/เบิก – ไม่มีใน DB ปล่อยว่างไว้ */}
                     <td className="px-3 py-4 text-center">
                       <div className="mx-auto w-20">
                         <input
-                          type="number"
-                          min="0"
-                          value={deductions[att.id] ?? 0}
+                          type="number" min="0"
+                          value={deductions[att.id] ?? ''}
+                          placeholder="0"
                           onChange={e => setDeductions(prev => ({ ...prev, [att.id]: Number(e.target.value) }))}
                           className={`w-full text-center text-sm border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 ${
                             (deductions[att.id] ?? 0) > 0
@@ -403,19 +451,26 @@ export default function DashboardPage() {
                     </td>
 
                     <td className="px-3 py-4 text-center">
-                      {!isAbsent ? (
+                      {isApproved ? (
                         <span className="inline-flex items-center gap-1 text-xs text-green-600 font-medium">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
                           อนุมัติแล้ว
                         </span>
-                      ) : (
+                      ) : isPending ? (
                         <span className="inline-flex items-center gap-1 text-xs text-orange-500 font-medium">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
                           รอตรวจสอบ
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs text-red-500 font-medium">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          ขาดงาน
                         </span>
                       )}
                     </td>
@@ -429,6 +484,7 @@ export default function DashboardPage() {
                         </svg>
                       </button>
                     </td>
+
                   </tr>
                 )
               })}
@@ -444,7 +500,7 @@ export default function DashboardPage() {
           </table>
         </div>
 
-        {/* Table footer */}
+        {/* Footer */}
         <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
           <p className="text-sm text-gray-500">
             แสดง 1 - {data?.recent_attendance?.length ?? 0} จาก {data?.today_attendance ?? 0} รายการ
