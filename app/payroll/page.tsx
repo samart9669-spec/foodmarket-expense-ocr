@@ -281,7 +281,7 @@ export default function PayrollPage() {
               value={bonus}
               onChange={(e) => setBonus(Number(e.target.value))}
               min={0}
-              step={100}
+              step={1}
             />
           </div>
           <div>
@@ -292,7 +292,7 @@ export default function PayrollPage() {
               value={deductions}
               onChange={(e) => setDeductions(Number(e.target.value))}
               min={0}
-              step={100}
+              step={1}
             />
           </div>
         </div>

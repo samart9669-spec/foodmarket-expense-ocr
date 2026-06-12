@@ -236,7 +236,7 @@ export default function NewEmployeePage() {
                 <div>
                   <label className="label">เงินเดือน/เดือน (฿)</label>
                   <input type="number" className="input-field" value={form.monthly_salary}
-                    onChange={e => setForm({ ...form, monthly_salary: Number(e.target.value) })} min={0} step={500} />
+                    onChange={e => setForm({ ...form, monthly_salary: Number(e.target.value) })} min={0} step={1} />
                 </div>
                 <div>
                   <label className="label">ค่า OT/ชั่วโมง (฿)</label>
@@ -254,7 +254,7 @@ export default function NewEmployeePage() {
                 <div>
                   <label className="label">ค่าแรงรายวัน (฿)</label>
                   <input type="number" className="input-field" value={form.daily_rate}
-                    onChange={e => setForm({ ...form, daily_rate: Number(e.target.value) })} min={0} step={50} />
+                    onChange={e => setForm({ ...form, daily_rate: Number(e.target.value) })} min={0} step={1} />
                 </div>
                 <div>
                   <label className="label">ค่า OT/ชั่วโมง (฿)</label>
