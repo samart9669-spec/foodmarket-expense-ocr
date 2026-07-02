@@ -27,6 +27,12 @@ export default function AdminLeavePage() {
   const [actionId, setActionId] = useState<string | null>(null)
   const [note, setNote] = useState('')
   const [noteId, setNoteId] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
+
+  const showToast = (msg: string, ok: boolean) => {
+    setToast({ msg, ok })
+    setTimeout(() => setToast(null), 4000)
+  }
 
   const fetchRequests = () => {
     setLoading(true)
@@ -42,14 +48,22 @@ export default function AdminLeavePage() {
   const handleAction = async (id: string, status: 'approved' | 'rejected') => {
     setActionId(id)
     try {
-      await fetch(`/api/leave-requests/${id}`, {
+      const res = await fetch(`/api/leave-requests/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status, admin_note: noteId === id ? note : '' }),
       })
-      setNoteId(null)
-      setNote('')
-      fetchRequests()
+      const data = await res.json().catch(() => ({})) as any
+      if (res.ok) {
+        showToast(status === 'approved' ? 'อนุมัติใบลาแล้ว' : 'ไม่อนุมัติใบลาแล้ว', true)
+        setNoteId(null)
+        setNote('')
+        fetchRequests()
+      } else {
+        showToast(data.error || `บันทึกไม่สำเร็จ (HTTP ${res.status})`, false)
+      }
+    } catch {
+      showToast('เชื่อมต่อไม่สำเร็จ กรุณาลองใหม่', false)
     } finally {
       setActionId(null)
     }
@@ -65,6 +79,11 @@ export default function AdminLeavePage() {
 
   return (
     <div className="space-y-6">
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 px-5 py-3 rounded-xl shadow-lg font-medium text-white ${toast.ok ? 'bg-green-600' : 'bg-red-600'}`}>
+          {toast.msg}
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-100">อนุมัติใบลา</h1>
         <div className="flex gap-2">

@@ -3,6 +3,7 @@
 export const runtime = 'edge'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 
 interface AttendanceRecord {
   id: string
@@ -30,17 +31,29 @@ interface CostByPoint {
   headcount: number
 }
 
+interface PendingLeave {
+  id: string
+  employee_name: string
+  leave_type: string
+  date_start: string
+  date_end: string
+}
+
 interface DashboardData {
   total_employees: number
   today_attendance: number
   today_sales_total: number
   today_labor_cost: number
   pending_payroll: number
+  pending_leaves: number
+  pending_leave_list: PendingLeave[]
   recent_attendance: AttendanceRecord[]
   attendance_by_type: Array<{ employee_type: string; count: number }>
   cost_by_point: CostByPoint[]
   today: string
 }
+
+const LEAVE_LABELS: Record<string, string> = { sick: 'ลาป่วย', annual: 'ลาพักร้อน', personal: 'ลากิจ', emergency: 'ลาฉุกเฉิน' }
 
 const BRANCH_OPTIONS = ['ทั้งหมด', 'จุดขาย 1', 'จุดขาย 2', 'จุดขาย 3']
 const GROUP_OPTIONS = ['ทั้งหมด', 'ฟรอนต์ (หน้าร้าน)', 'ครัว']
@@ -172,7 +185,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ─── Stat cards ─── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
 
         {/* Card 1: พนักงานสแกนเข้างาน */}
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
@@ -249,6 +262,42 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+
+        {/* Card 4: ใบลารออนุมัติ */}
+        <Link href="/admin/leave" className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 block hover:shadow-md transition-shadow">
+          <div className="flex items-start justify-between">
+            <div className="flex-1 min-w-0">
+              <p className={`text-sm font-medium mb-2 ${(data?.pending_leaves ?? 0) > 0 ? 'text-yellow-600' : 'text-gray-500'}`}>
+                ใบลารออนุมัติ
+              </p>
+              <div className="flex items-baseline gap-2">
+                <span className="text-4xl font-bold text-gray-900">{data?.pending_leaves ?? 0}</span>
+                <span className="text-sm text-gray-400">รายการ</span>
+              </div>
+              {(data?.pending_leave_list?.length ?? 0) > 0 ? (
+                <div className="mt-2 space-y-0.5">
+                  {data!.pending_leave_list.slice(0, 2).map(l => (
+                    <p key={l.id} className="text-xs text-gray-500 truncate">
+                      {l.employee_name} · {LEAVE_LABELS[l.leave_type] ?? l.leave_type} {l.date_start}
+                    </p>
+                  ))}
+                  {(data?.pending_leaves ?? 0) > 2 && (
+                    <p className="text-xs text-gray-400">และอีก {(data?.pending_leaves ?? 0) - 2} รายการ...</p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400 mt-2">ไม่มีใบลาค้างอนุมัติ</p>
+              )}
+            </div>
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ml-3 flex-shrink-0 ${
+              (data?.pending_leaves ?? 0) > 0 ? 'bg-yellow-50' : 'bg-gray-100'
+            }`}>
+              <svg className={`w-6 h-6 ${(data?.pending_leaves ?? 0) > 0 ? 'text-yellow-500' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </div>
+          </div>
+        </Link>
       </div>
 
       {/* ─── Labor Cost Allocation ─── */}

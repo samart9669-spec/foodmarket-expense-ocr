@@ -94,7 +94,26 @@ export async function GET() {
       ORDER BY date ASC
     `).bind(today, today).all()
 
+    // Pending leave requests — table may not exist before /api/migrate runs
+    let pendingLeaves = 0
+    let pendingLeaveList: any[] = []
+    try {
+      const leaves = await db.prepare(`
+        SELECT lr.id, lr.date_start, lr.date_end, lr.leave_type, e.name AS employee_name
+        FROM leave_requests lr
+        JOIN employees e ON e.id = lr.employee_id
+        WHERE lr.status = 'pending'
+        ORDER BY lr.created_at DESC
+        LIMIT 5
+      `).all()
+      pendingLeaveList = leaves.results || []
+      const cnt = await db.prepare("SELECT COUNT(*) AS count FROM leave_requests WHERE status = 'pending'").first() as any
+      pendingLeaves = cnt?.count ?? 0
+    } catch {}
+
     return Response.json({
+      pending_leaves:   pendingLeaves,
+      pending_leave_list: pendingLeaveList,
       total_employees:  (totalEmployees  as any).count,
       today_attendance: (todayAttendance as any).count,
       today_sales_total:(todaySales      as any).total,

@@ -1,4 +1,5 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
+import { ensureLeaveRequestsTable } from '@/lib/db-tables'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -6,6 +7,7 @@ export const runtime = 'edge'
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const { env } = getRequestContext()
+    await ensureLeaveRequestsTable(env.DB)
     const body = await request.json() as any
     const { status, admin_note } = body
 
@@ -14,13 +16,17 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     }
 
     const now = new Date().toISOString()
-    await env.DB.prepare(`
+    const result = await env.DB.prepare(`
       UPDATE leave_requests SET status = ?, admin_note = ?, reviewed_at = ? WHERE id = ?
     `).bind(status, admin_note || null, now, params.id).run()
+
+    if (!result.meta?.changes) {
+      return Response.json({ error: 'ไม่พบใบลานี้ในระบบ' }, { status: 404 })
+    }
 
     return Response.json({ success: true })
   } catch (error) {
     console.error('PATCH /api/leave-requests/[id] error:', error)
-    return Response.json({ error: 'เกิดข้อผิดพลาด' }, { status: 500 })
+    return Response.json({ error: `เกิดข้อผิดพลาด: ${error instanceof Error ? error.message : String(error)}` }, { status: 500 })
   }
 }

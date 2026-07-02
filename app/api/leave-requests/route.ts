@@ -1,5 +1,6 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { generateId } from '@/lib/utils'
+import { ensureLeaveRequestsTable } from '@/lib/db-tables'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -7,6 +8,7 @@ export const runtime = 'edge'
 export async function GET(request: NextRequest) {
   try {
     const { env } = getRequestContext()
+    await ensureLeaveRequestsTable(env.DB)
     const { searchParams } = new URL(request.url)
     const employee_id = searchParams.get('employee_id')
     const status = searchParams.get('status') // pending|approved|rejected
@@ -37,6 +39,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { env } = getRequestContext()
+    await ensureLeaveRequestsTable(env.DB)
     const body = await request.json() as any
     const { employee_id, date_start, date_end, leave_type, reason } = body
 
