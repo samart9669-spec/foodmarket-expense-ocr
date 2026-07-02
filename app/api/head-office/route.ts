@@ -6,10 +6,17 @@ export const runtime = 'edge'
 
 const KEYS = ['head_office_lat', 'head_office_lng', 'head_office_radius', 'head_office_address'] as const
 
+// Self-healing: the table normally comes from /api/migrate, but create it here
+// too so saving works even on databases that haven't run the migration yet.
+async function ensureTable(db: any) {
+  await db.prepare('CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)').run()
+}
+
 export async function GET() {
   try {
     const { env } = getRequestContext()
     const db = env.DB
+    await ensureTable(db)
 
     const rows = await db.prepare(
       `SELECT key, value FROM app_settings WHERE key IN (${KEYS.map(() => '?').join(',')})`
@@ -33,6 +40,7 @@ export async function PUT(request: NextRequest) {
   try {
     const { env } = getRequestContext()
     const db = env.DB
+    await ensureTable(db)
 
     const body = await request.json() as {
       latitude?: number | null
