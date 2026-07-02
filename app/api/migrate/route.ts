@@ -52,6 +52,10 @@ export async function POST() {
       )
     `, 'leave_requests table')
 
+    // Columns missing from leave_requests tables created by older versions
+    await run('ALTER TABLE leave_requests ADD COLUMN admin_note TEXT', 'leave_requests.admin_note')
+    await run('ALTER TABLE leave_requests ADD COLUMN reviewed_at TEXT', 'leave_requests.reviewed_at')
+
     // Admin users table
     await run(`
       CREATE TABLE IF NOT EXISTS admin_users (

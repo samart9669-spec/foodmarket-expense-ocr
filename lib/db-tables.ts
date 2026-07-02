@@ -16,4 +16,14 @@ export async function ensureLeaveRequestsTable(db: any) {
       FOREIGN KEY (employee_id) REFERENCES employees(id)
     )
   `).run()
+
+  // Tables created by older versions lack these columns — add them in place.
+  // (ALTER TABLE ADD COLUMN can't use non-constant defaults, so created_at has none here.)
+  for (const column of ['admin_note TEXT', 'reviewed_at TEXT', 'reason TEXT', "status TEXT DEFAULT 'pending'", 'created_at TEXT']) {
+    try {
+      await db.prepare(`ALTER TABLE leave_requests ADD COLUMN ${column}`).run()
+    } catch {
+      // duplicate column — already present
+    }
+  }
 }
