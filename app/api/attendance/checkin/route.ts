@@ -36,16 +36,23 @@ export async function POST(request: NextRequest) {
       .bind(employee_id).first() as any
     if (!employee) return Response.json({ error: 'ไม่พบข้อมูลพนักงาน' }, { status: 404 })
 
-    // GPS branch validation (only if branch has GPS configured and client sends coordinates)
-    if (sales_point_id && latitude != null && longitude != null) {
+    // GPS branch validation — enforced whenever the target branch has GPS configured.
+    // Falls back to the employee's primary branch so leaving sales_point_id blank can't bypass the check.
+    const targetPointId = sales_point_id || employee.sales_point_id
+    if (targetPointId) {
       const branch = await db.prepare('SELECT * FROM sales_points WHERE id = ?')
-        .bind(sales_point_id).first() as any
+        .bind(targetPointId).first() as any
       if (branch?.latitude != null && branch?.longitude != null) {
+        if (latitude == null || longitude == null) {
+          return Response.json({
+            error: 'ไม่พบตำแหน่ง GPS กรุณาเปิดอนุญาตการเข้าถึงตำแหน่งแล้วลองใหม่',
+          }, { status: 422 })
+        }
         const dist = getDistanceMeters(latitude, longitude, branch.latitude, branch.longitude)
         const radius = branch.radius_meters ?? 200
         if (dist > radius) {
           return Response.json({
-            error: `อยู่ห่างจากสาขา ${Math.round(dist)} เมตร (ต้องอยู่ภายใน ${radius} เมตร)`,
+            error: `อยู่ห่างจากสาขา${branch.name ? ` ${branch.name}` : ''} ${Math.round(dist)} เมตร (ต้องอยู่ภายใน ${radius} เมตร)`,
             distance: Math.round(dist),
             required: radius,
           }, { status: 422 })

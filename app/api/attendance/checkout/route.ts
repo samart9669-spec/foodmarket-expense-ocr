@@ -4,6 +4,16 @@ import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
 
+function getDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000
+  const φ1 = lat1 * Math.PI / 180
+  const φ2 = lat2 * Math.PI / 180
+  const Δφ = (lat2 - lat1) * Math.PI / 180
+  const Δλ = (lon2 - lon1) * Math.PI / 180
+  const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { env } = getRequestContext()
@@ -12,9 +22,11 @@ export async function POST(request: NextRequest) {
     const body = await request.json() as {
       employee_id: string
       method: 'face' | 'qr' | 'manual'
+      latitude?: number
+      longitude?: number
     }
 
-    const { employee_id, method = 'manual' } = body
+    const { employee_id, method = 'manual', latitude, longitude } = body
 
     if (!employee_id) {
       return Response.json({ error: 'employee_id is required' }, { status: 400 })
@@ -23,7 +35,7 @@ export async function POST(request: NextRequest) {
     const employee = await db
       .prepare('SELECT * FROM employees WHERE id = ? AND is_active = 1')
       .bind(employee_id)
-      .first() as { id: string; name: string; employee_type: string } | null
+      .first() as { id: string; name: string; employee_type: string; sales_point_id: string | null } | null
 
     if (!employee) {
       return Response.json({ error: 'ไม่พบข้อมูลพนักงาน' }, { status: 404 })
@@ -38,6 +50,7 @@ export async function POST(request: NextRequest) {
         check_in: string | null
         check_out: string | null
         status: string
+        sales_point_id: string | null
       } | null
 
     if (!existing) {
@@ -52,6 +65,29 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: 'เช็คเอาต์ไปแล้ววันนี้', check_out: existing.check_out }, { status: 409 })
     }
 
+    // GPS validation against the branch worked today (falls back to primary branch)
+    const targetPointId = existing.sales_point_id || employee.sales_point_id
+    if (targetPointId) {
+      const branch = await db.prepare('SELECT * FROM sales_points WHERE id = ?')
+        .bind(targetPointId).first() as any
+      if (branch?.latitude != null && branch?.longitude != null) {
+        if (latitude == null || longitude == null) {
+          return Response.json({
+            error: 'ไม่พบตำแหน่ง GPS กรุณาเปิดอนุญาตการเข้าถึงตำแหน่งแล้วลองใหม่',
+          }, { status: 422 })
+        }
+        const dist = getDistanceMeters(latitude, longitude, branch.latitude, branch.longitude)
+        const radius = branch.radius_meters ?? 200
+        if (dist > radius) {
+          return Response.json({
+            error: `อยู่ห่างจากสาขา${branch.name ? ` ${branch.name}` : ''} ${Math.round(dist)} เมตร (ต้องอยู่ภายใน ${radius} เมตร)`,
+            distance: Math.round(dist),
+            required: radius,
+          }, { status: 422 })
+        }
+      }
+    }
+
     const now = new Date()
     const checkOutTime = `${today} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
 
@@ -62,10 +98,10 @@ export async function POST(request: NextRequest) {
     await db
       .prepare(`
         UPDATE attendance
-        SET check_out = ?, check_out_method = ?, regular_hours = ?, ot_hours = ?
+        SET check_out = ?, check_out_method = ?, regular_hours = ?, ot_hours = ?, check_out_lat = ?, check_out_lng = ?
         WHERE id = ?
       `)
-      .bind(checkOutTime, method, regularHours, otHours, existing.id)
+      .bind(checkOutTime, method, regularHours, otHours, latitude ?? null, longitude ?? null, existing.id)
       .run()
 
     const updated = await db.prepare('SELECT * FROM attendance WHERE id = ?').bind(existing.id).first()

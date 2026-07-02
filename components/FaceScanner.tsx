@@ -19,6 +19,11 @@ interface FaceScannerProps {
 
 type LoadStatus = 'loading-models' | 'extracting' | 'ready' | 'no-faces' | 'error'
 
+// Stricter matching: 0.45 distance threshold (default 0.6 accepts lookalikes),
+// and the same person must match on N consecutive frames before check-in fires.
+const MATCH_THRESHOLD = 0.45
+const REQUIRED_CONSECUTIVE_MATCHES = 3
+
 export default function FaceScanner({ employees, onMatch, onError, isActive = true }: FaceScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -29,11 +34,14 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
   // Refs instead of state to avoid stale-closure bugs in the interval callback
   const lastDetectionRef = useRef<string | null>(null)
   const detectingRef = useRef(false)
+  const candidateRef = useRef<{ label: string; count: number } | null>(null)
 
   const [loadStatus, setLoadStatus] = useState<LoadStatus>('loading-models')
   const [loadMsg, setLoadMsg] = useState('กำลังโหลดโมเดลจดจำใบหน้า...')
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [detecting, setDetecting] = useState(false)
+  const [confirmProgress, setConfirmProgress] = useState(0)
+  const [unknownFace, setUnknownFace] = useState(false)
 
   // ── Load models ONCE on mount, rebuild matcher when employees change ─
   useEffect(() => {
@@ -113,7 +121,7 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
           return
         }
 
-        matcherRef.current = new faceapi.FaceMatcher(labeled, 0.55)
+        matcherRef.current = new faceapi.FaceMatcher(labeled, MATCH_THRESHOLD)
         setLoadStatus('ready')
         setLoadMsg('')
       } catch (err: any) {
@@ -172,14 +180,34 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
 
       if (det) {
         const match = matcherRef.current.findBestMatch(det.descriptor)
-        if (match.label !== 'unknown' && lastDetectionRef.current !== match.label) {
-          const emp = employees.find(e => e.id === match.label)
-          if (emp) {
-            lastDetectionRef.current = match.label
-            onMatch(emp.id, emp.name)
-            setTimeout(() => { lastDetectionRef.current = null }, 3000)
+        if (match.label === 'unknown') {
+          candidateRef.current = null
+          setConfirmProgress(0)
+          setUnknownFace(true)
+        } else {
+          setUnknownFace(false)
+          const prev = candidateRef.current
+          const candidate = prev && prev.label === match.label
+            ? { label: prev.label, count: prev.count + 1 }
+            : { label: match.label, count: 1 }
+          candidateRef.current = candidate
+          setConfirmProgress(Math.min(candidate.count, REQUIRED_CONSECUTIVE_MATCHES))
+
+          if (candidate.count >= REQUIRED_CONSECUTIVE_MATCHES && lastDetectionRef.current !== match.label) {
+            const emp = employees.find(e => e.id === match.label)
+            if (emp) {
+              lastDetectionRef.current = match.label
+              candidateRef.current = null
+              setConfirmProgress(0)
+              onMatch(emp.id, emp.name)
+              setTimeout(() => { lastDetectionRef.current = null }, 3000)
+            }
           }
         }
+      } else {
+        candidateRef.current = null
+        setConfirmProgress(0)
+        setUnknownFace(false)
       }
     } catch {}
     detectingRef.current = false
@@ -241,6 +269,18 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
         {detecting && (
           <div className="absolute top-3 right-3 bg-green-500 text-white text-xs px-2 py-1 rounded-full">
             กำลังสแกน...
+          </div>
+        )}
+
+        {confirmProgress > 0 && (
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-sm px-4 py-1.5 rounded-full font-medium">
+            กำลังยืนยันตัวตน {confirmProgress}/{REQUIRED_CONSECUTIVE_MATCHES}
+          </div>
+        )}
+
+        {unknownFace && confirmProgress === 0 && (
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-red-600 text-white text-sm px-4 py-1.5 rounded-full font-medium whitespace-nowrap">
+            ไม่พบข้อมูลใบหน้าในระบบ
           </div>
         )}
       </div>

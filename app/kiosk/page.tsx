@@ -4,6 +4,7 @@ export const runtime = 'edge'
 
 import { useState, useEffect, useCallback } from 'react'
 import dynamic from 'next/dynamic'
+import { useGeolocation } from '@/lib/useGeolocation'
 
 const FaceScanner = dynamic(() => import('@/components/FaceScanner'), { ssr: false })
 const QRScanner = dynamic(() => import('@/components/QRScanner'), { ssr: false })
@@ -39,6 +40,7 @@ export default function KioskPage() {
   const [loading, setLoading] = useState(false)
   const [scanMode, setScanMode] = useState<'checkin' | 'checkout'>('checkin')
   const [currentTime, setCurrentTime] = useState(new Date())
+  const { coords, status: gpsStatus } = useGeolocation()
 
   useEffect(() => {
     fetch('/api/employees').then((r) => r.json()).then((d: any) => setEmployees(d.employees || []))
@@ -56,7 +58,13 @@ export default function KioskPage() {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employee_id: employeeId, method, sales_point_id: selectedSalesPoint || undefined }),
+        body: JSON.stringify({
+          employee_id: employeeId,
+          method,
+          sales_point_id: selectedSalesPoint || undefined,
+          latitude: coords?.lat,
+          longitude: coords?.lng,
+        }),
       })
       const data = await res.json() as any
       setScanResult({
@@ -72,7 +80,7 @@ export default function KioskPage() {
       setLoading(false)
       setTimeout(() => setScanResult(null), 5000)
     }
-  }, [loading, scanMode, selectedSalesPoint])
+  }, [loading, scanMode, selectedSalesPoint, coords])
 
   const handleFaceMatch = useCallback((id: string, name: string) => doCheckInOut(id, name, 'face'), [doCheckInOut])
 
@@ -96,6 +104,14 @@ export default function KioskPage() {
       <div className="text-center pt-8 pb-4 px-4">
         <p className="text-6xl font-bold font-mono tracking-widest text-white">{timeStr}</p>
         <p className="text-gray-400 mt-2 text-lg">{dateStr}</p>
+        <div className="mt-2 inline-flex items-center gap-1.5 text-sm">
+          <span className={`w-2 h-2 rounded-full ${
+            gpsStatus === 'ok' ? 'bg-green-500' : gpsStatus === 'loading' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'
+          }`} />
+          <span className={gpsStatus === 'ok' ? 'text-green-400' : gpsStatus === 'loading' ? 'text-yellow-400' : 'text-red-400'}>
+            {gpsStatus === 'ok' ? 'พบตำแหน่ง GPS' : gpsStatus === 'loading' ? 'กำลังค้นหาตำแหน่ง...' : 'ไม่ได้อนุญาตตำแหน่ง GPS'}
+          </span>
+        </div>
       </div>
 
       {/* Check-in / Check-out toggle */}

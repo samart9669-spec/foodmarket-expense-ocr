@@ -5,6 +5,7 @@ export const runtime = 'edge'
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
+import { useGeolocation } from '@/lib/useGeolocation'
 
 const FaceScanner = dynamic(() => import('@/components/FaceScanner'), { ssr: false })
 const QRScanner = dynamic(() => import('@/components/QRScanner'), { ssr: false })
@@ -53,6 +54,7 @@ export default function AttendanceScanPage() {
   const [loading, setLoading] = useState(false)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [scanMode, setScanMode] = useState<'checkin' | 'checkout'>('checkin')
+  const { coords, status: gpsStatus } = useGeolocation()
 
   useEffect(() => {
     fetch('/api/employees').then((r) => r.json()).then((d: any) => setEmployees(d.employees || [])).catch(() => {})
@@ -76,6 +78,8 @@ export default function AttendanceScanPage() {
             employee_id: employeeId,
             method: 'face',
             sales_point_id: selectedSalesPoint || undefined,
+            latitude: coords?.lat,
+            longitude: coords?.lng,
           }),
         })
         const data = await res.json() as any
@@ -100,7 +104,7 @@ export default function AttendanceScanPage() {
         setLoading(false)
       }
     },
-    [loading, scanMode, selectedSalesPoint]
+    [loading, scanMode, selectedSalesPoint, coords]
   )
 
   const handleQRScan = useCallback(
@@ -120,7 +124,7 @@ export default function AttendanceScanPage() {
         const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ employee_id: employee.id, method: 'qr', sales_point_id: selectedSalesPoint || undefined }),
+          body: JSON.stringify({ employee_id: employee.id, method: 'qr', sales_point_id: selectedSalesPoint || undefined, latitude: coords?.lat, longitude: coords?.lng }),
         })
         const data = await res.json() as any
 
@@ -135,7 +139,7 @@ export default function AttendanceScanPage() {
         setLoading(false)
       }
     },
-    [loading, scanMode, selectedSalesPoint, employees]
+    [loading, scanMode, selectedSalesPoint, employees, coords]
   )
 
   return (
@@ -148,6 +152,14 @@ export default function AttendanceScanPage() {
         <p className="text-gray-500 mt-1">
           {currentTime.toLocaleDateString('th-TH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
         </p>
+        <div className="mt-2 inline-flex items-center gap-1.5 text-sm">
+          <span className={`w-2 h-2 rounded-full ${
+            gpsStatus === 'ok' ? 'bg-green-500' : gpsStatus === 'loading' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'
+          }`} />
+          <span className={gpsStatus === 'ok' ? 'text-green-600' : gpsStatus === 'loading' ? 'text-yellow-600' : 'text-red-600'}>
+            {gpsStatus === 'ok' ? 'พบตำแหน่ง GPS' : gpsStatus === 'loading' ? 'กำลังค้นหาตำแหน่ง...' : 'ไม่ได้อนุญาตตำแหน่ง GPS'}
+          </span>
+        </div>
       </div>
 
       <div className="flex rounded-xl overflow-hidden border-2 border-blue-800">
