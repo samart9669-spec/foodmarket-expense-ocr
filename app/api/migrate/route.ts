@@ -103,6 +103,14 @@ export async function POST() {
       ('uniform_deposit', '0', 'ค่ามัดจำเครื่องแบบ', 'deduction', '฿')
     `, 'payroll_settings seed')
 
+    // General app settings (head office GPS, etc.)
+    await run(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    `, 'app_settings table')
+
     await run("ALTER TABLE attendance ADD COLUMN day_type TEXT DEFAULT 'normal'", 'attendance.day_type')
     await run('ALTER TABLE attendance ADD COLUMN food_allowance REAL DEFAULT 0', 'attendance.food_allowance')
     await run('ALTER TABLE attendance ADD COLUMN split_shift_allowance REAL DEFAULT 0', 'attendance.split_shift_allowance')

@@ -1,18 +1,9 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { generateId, getTodayString } from '@/lib/utils'
+import { getGeoTarget, validateGeoPosition } from '@/lib/geo'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
-
-function getDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371000
-  const φ1 = lat1 * Math.PI / 180
-  const φ2 = lat2 * Math.PI / 180
-  const Δφ = (lat2 - lat1) * Math.PI / 180
-  const Δλ = (lon2 - lon1) * Math.PI / 180
-  const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -36,29 +27,14 @@ export async function POST(request: NextRequest) {
       .bind(employee_id).first() as any
     if (!employee) return Response.json({ error: 'ไม่พบข้อมูลพนักงาน' }, { status: 404 })
 
-    // GPS branch validation — enforced whenever the target branch has GPS configured.
-    // Falls back to the employee's primary branch so leaving sales_point_id blank can't bypass the check.
-    const targetPointId = sales_point_id || employee.sales_point_id
-    if (targetPointId) {
-      const branch = await db.prepare('SELECT * FROM sales_points WHERE id = ?')
-        .bind(targetPointId).first() as any
-      if (branch?.latitude != null && branch?.longitude != null) {
-        if (latitude == null || longitude == null) {
-          return Response.json({
-            error: 'ไม่พบตำแหน่ง GPS กรุณาเปิดอนุญาตการเข้าถึงตำแหน่งแล้วลองใหม่',
-          }, { status: 422 })
-        }
-        const dist = getDistanceMeters(latitude, longitude, branch.latitude, branch.longitude)
-        const radius = branch.radius_meters ?? 200
-        if (dist > radius) {
-          return Response.json({
-            error: `อยู่ห่างจากสาขา${branch.name ? ` ${branch.name}` : ''} ${Math.round(dist)} เมตร (ต้องอยู่ภายใน ${radius} เมตร)`,
-            distance: Math.round(dist),
-            required: radius,
-          }, { status: 422 })
-        }
-      }
-    }
+    // GPS validation — checked against the selected branch, falling back to the
+    // employee's primary branch, and finally the head office for employees with
+    // no branch (e.g. central kitchen). Skipped only when the resolved place has
+    // no GPS configured.
+    const targetPointId = sales_point_id || employee.sales_point_id || null
+    const geoTarget = await getGeoTarget(db, targetPointId)
+    const geoError = validateGeoPosition(geoTarget, latitude, longitude)
+    if (geoError) return Response.json(geoError, { status: 422 })
 
     const today = getTodayString()
     const now = new Date()
