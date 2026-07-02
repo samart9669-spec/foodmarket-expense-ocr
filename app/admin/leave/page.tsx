@@ -48,10 +48,10 @@ export default function AdminLeavePage() {
   const handleAction = async (id: string, status: 'approved' | 'rejected') => {
     setActionId(id)
     try {
-      const res = await fetch(`/api/leave-requests/${id}`, {
+      const res = await fetch('/api/leave-requests', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status, admin_note: noteId === id ? note : '' }),
+        body: JSON.stringify({ id, status, admin_note: noteId === id ? note : '' }),
       })
       const data = await res.json().catch(() => ({})) as any
       if (res.ok) {

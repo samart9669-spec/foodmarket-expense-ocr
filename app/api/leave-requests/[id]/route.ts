@@ -15,14 +15,15 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       return Response.json({ error: 'status ต้องเป็น approved หรือ rejected' }, { status: 400 })
     }
 
-    const now = new Date().toISOString()
-    const result = await env.DB.prepare(`
-      UPDATE leave_requests SET status = ?, admin_note = ?, reviewed_at = ? WHERE id = ?
-    `).bind(status, admin_note || null, now, params.id).run()
-
-    if (!result.meta?.changes) {
+    const existing = await env.DB.prepare('SELECT id FROM leave_requests WHERE id = ?').bind(params.id).first()
+    if (!existing) {
       return Response.json({ error: 'ไม่พบใบลานี้ในระบบ' }, { status: 404 })
     }
+
+    const now = new Date().toISOString()
+    await env.DB.prepare(`
+      UPDATE leave_requests SET status = ?, admin_note = ?, reviewed_at = ? WHERE id = ?
+    `).bind(status, admin_note || null, now, params.id).run()
 
     return Response.json({ success: true })
   } catch (error) {

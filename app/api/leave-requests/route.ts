@@ -36,6 +36,39 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// Approve/reject via the static route (id in body) — avoids any environment
+// issues with the dynamic [id] route.
+export async function PATCH(request: NextRequest) {
+  try {
+    const { env } = getRequestContext()
+    await ensureLeaveRequestsTable(env.DB)
+    const body = await request.json() as any
+    const { id, status, admin_note } = body
+
+    if (!id) {
+      return Response.json({ error: 'ต้องระบุ id ของใบลา' }, { status: 400 })
+    }
+    if (!['approved', 'rejected'].includes(status)) {
+      return Response.json({ error: 'status ต้องเป็น approved หรือ rejected' }, { status: 400 })
+    }
+
+    const existing = await env.DB.prepare('SELECT id FROM leave_requests WHERE id = ?').bind(id).first()
+    if (!existing) {
+      return Response.json({ error: 'ไม่พบใบลานี้ในระบบ' }, { status: 404 })
+    }
+
+    const now = new Date().toISOString()
+    await env.DB.prepare(`
+      UPDATE leave_requests SET status = ?, admin_note = ?, reviewed_at = ? WHERE id = ?
+    `).bind(status, admin_note || null, now, id).run()
+
+    return Response.json({ success: true })
+  } catch (error) {
+    console.error('PATCH /api/leave-requests error:', error)
+    return Response.json({ error: `เกิดข้อผิดพลาด: ${error instanceof Error ? error.message : String(error)}` }, { status: 500 })
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { env } = getRequestContext()
