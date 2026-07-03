@@ -9,6 +9,52 @@ export async function ensureAttendanceApprovedColumn(db: any) {
   }
 }
 
+// early_out: checked out before scheduled end time (ออกก่อนเวลา)
+// offsite_request_id: links to the approved offsite-work request used that day
+export async function ensureAttendanceStatusColumns(db: any) {
+  for (const column of ['early_out INTEGER DEFAULT 0', 'offsite_request_id TEXT']) {
+    try {
+      await db.prepare(`ALTER TABLE attendance ADD COLUMN ${column}`).run()
+    } catch {
+      // duplicate column — already present
+    }
+  }
+}
+
+// คำขอปฏิบัติงานนอกสถานที่ — approved requests let that employee check in/out
+// at the attached location on the requested date only.
+export async function ensureOffsiteRequestsTable(db: any) {
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS offsite_requests (
+      id TEXT PRIMARY KEY,
+      employee_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      location_name TEXT NOT NULL,
+      latitude REAL NOT NULL,
+      longitude REAL NOT NULL,
+      radius_meters INTEGER DEFAULT 300,
+      reason TEXT,
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
+      admin_note TEXT,
+      reviewed_at TEXT,
+      created_at TEXT DEFAULT (datetime('now','localtime')),
+      FOREIGN KEY (employee_id) REFERENCES employees(id)
+    )
+  `).run()
+}
+
+// Approved offsite request for one employee on one date, or null.
+export async function getApprovedOffsite(db: any, employeeId: string, date: string): Promise<any | null> {
+  try {
+    await ensureOffsiteRequestsTable(db)
+    return await db.prepare(
+      "SELECT * FROM offsite_requests WHERE employee_id = ? AND date = ? AND status = 'approved' LIMIT 1"
+    ).bind(employeeId, date).first()
+  } catch {
+    return null
+  }
+}
+
 // Fixed work-schedule columns for employees without shifts (e.g. head office
 // staff working 08:00-18:00 Mon-Fri). work_days is comma-separated JS day
 // numbers (0=Sun ... 6=Sat), e.g. '1,2,3,4,5'.

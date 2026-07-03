@@ -12,6 +12,8 @@ interface DayRow {
   check_in: string | null
   check_out: string | null
   ot_hours: number | null
+  early_out: boolean
+  offsite_location: string | null
   sales_point_name: string | null
   leave_type: string | null
   leave_reason: string | null
@@ -143,9 +145,15 @@ function DetailContent() {
                   {data.days.map(d => {
                     const badge = KIND_BADGE[d.kind] ?? KIND_BADGE.none
                     const isWeekendish = d.kind === 'dayoff'
-                    const note = d.kind === 'leave'
-                      ? `${LEAVE_LABELS[d.leave_type ?? ''] ?? d.leave_type ?? ''}${d.leave_reason ? ` — ${d.leave_reason}` : ''}`
-                      : d.sales_point_name || ''
+                    const noteParts: string[] = []
+                    if (d.kind === 'leave') {
+                      noteParts.push(`${LEAVE_LABELS[d.leave_type ?? ''] ?? d.leave_type ?? ''}${d.leave_reason ? ` — ${d.leave_reason}` : ''}`)
+                    } else if (d.offsite_location) {
+                      noteParts.push(`นอกสถานที่: ${d.offsite_location}`)
+                    } else if (d.sales_point_name) {
+                      noteParts.push(d.sales_point_name)
+                    }
+                    const note = noteParts.join(' · ')
                     return (
                       <tr key={d.date} className={isWeekendish ? 'bg-gray-50/60' : 'hover:bg-gray-50/60 transition-colors'}>
                         <td className="px-3 py-2.5 font-mono text-xs text-gray-600">{d.date.slice(8)}/{d.date.slice(5, 7)}</td>
@@ -156,7 +164,15 @@ function DetailContent() {
                           {d.kind === 'future' || d.kind === 'none' ? (
                             <span className="text-gray-300 text-xs">-</span>
                           ) : (
-                            <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${badge.cls}`}>{badge.label}</span>
+                            <span className="inline-flex flex-wrap justify-center gap-1">
+                              <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${badge.cls}`}>{badge.label}</span>
+                              {d.early_out && (
+                                <span className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">ออกก่อนเวลา</span>
+                              )}
+                              {d.offsite_location && (
+                                <span className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">นอกสถานที่</span>
+                              )}
+                            </span>
                           )}
                         </td>
                         <td className="px-3 py-2.5 text-xs text-gray-500">{note}</td>

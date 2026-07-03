@@ -23,6 +23,8 @@ interface AttendanceRecord {
   ot_hours: number
   daily_rate: number
   ot_rate: number
+  early_out: number | null
+  offsite_location: string | null
 }
 
 interface CostByPoint {
@@ -428,7 +430,14 @@ export default function DashboardPage() {
                     </td>
 
                     <td className="px-3 py-4">
-                      {todayBranch !== '-' ? (
+                      {att.offsite_location ? (
+                        <>
+                          <span className="inline-flex px-2.5 py-1 rounded-md text-xs font-medium bg-purple-50 text-purple-700">
+                            {att.offsite_location}
+                          </span>
+                          <p className="text-xs text-purple-600 mt-0.5">นอกสถานที่</p>
+                        </>
+                      ) : todayBranch !== '-' ? (
                         <>
                           <span className={`inline-flex px-2.5 py-1 rounded-md text-xs font-medium ${
                             isCrossPosted ? 'bg-yellow-50 text-yellow-700' : 'bg-blue-50 text-blue-700'
@@ -466,6 +475,7 @@ export default function DashboardPage() {
                         isAbsent ? 'text-red-600' : isLate ? 'text-orange-500' : 'text-gray-500'
                       }`}>
                         {isAbsent ? 'ขาดงาน' : isLate ? 'สาย' : 'ตรงเวลา'}
+                        {att.early_out === 1 && <span className="text-yellow-600"> · ออกก่อนเวลา</span>}
                       </p>
                     </td>
 

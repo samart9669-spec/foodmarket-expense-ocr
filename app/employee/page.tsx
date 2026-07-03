@@ -66,6 +66,24 @@ export default function EmployeeLandingPage() {
           </div>
         </Link>
 
+        <Link href="/employee/offsite" className="block">
+          <div className="bg-purple-700 hover:bg-purple-600 active:bg-purple-800 rounded-2xl p-6 flex items-center gap-5 transition-colors shadow-lg">
+            <div className="w-14 h-14 bg-purple-600 rounded-xl flex items-center justify-center flex-shrink-0">
+              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-xl font-bold">ขอปฏิบัติงานนอกสถานที่</p>
+              <p className="text-purple-200 text-sm mt-0.5">แนบพิกัดสถานที่ · รออนุมัติ · เช็คอินนอกสถานที่</p>
+            </div>
+            <svg className="w-6 h-6 text-purple-300 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
+        </Link>
+
         <Link href="/employee/history" className="block">
           <div className="bg-gray-800 hover:bg-gray-700 active:bg-gray-900 rounded-2xl p-6 flex items-center gap-5 transition-colors shadow-lg">
             <div className="w-14 h-14 bg-gray-700 rounded-xl flex items-center justify-center flex-shrink-0">

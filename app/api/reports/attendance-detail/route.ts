@@ -1,5 +1,5 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
-import { ensureLeaveRequestsTable, ensureEmployeeScheduleColumns } from '@/lib/db-tables'
+import { ensureLeaveRequestsTable, ensureEmployeeScheduleColumns, ensureAttendanceStatusColumns, ensureOffsiteRequestsTable } from '@/lib/db-tables'
 import { getTodayString } from '@/lib/utils'
 import { NextRequest } from 'next/server'
 
@@ -14,6 +14,8 @@ export async function GET(request: NextRequest) {
     const db = env.DB
     await ensureLeaveRequestsTable(db)
     await ensureEmployeeScheduleColumns(db)
+    await ensureAttendanceStatusColumns(db)
+    await ensureOffsiteRequestsTable(db)
 
     const { searchParams } = new URL(request.url)
     const employeeId = searchParams.get('employee_id') || ''
@@ -37,9 +39,11 @@ export async function GET(request: NextRequest) {
 
     const [attendanceRes, leavesRes] = await Promise.all([
       db.prepare(`
-        SELECT a.date, a.status, a.check_in, a.check_out, a.ot_hours, sp.name AS sales_point_name
+        SELECT a.date, a.status, a.check_in, a.check_out, a.ot_hours, a.early_out,
+               sp.name AS sales_point_name, o.location_name AS offsite_location
         FROM attendance a
         LEFT JOIN sales_points sp ON a.sales_point_id = sp.id
+        LEFT JOIN offsite_requests o ON a.offsite_request_id = o.id
         WHERE a.employee_id = ? AND a.date >= ? AND a.date <= ?
       `).bind(employeeId, monthStart, monthEnd).all(),
       db.prepare(`
@@ -92,6 +96,8 @@ export async function GET(request: NextRequest) {
         check_in: att?.check_in ?? null,
         check_out: att?.check_out ?? null,
         ot_hours: att?.ot_hours ?? null,
+        early_out: att?.early_out === 1,
+        offsite_location: att?.offsite_location ?? null,
         sales_point_name: att?.sales_point_name ?? null,
         leave_type: leave?.leave_type ?? null,
         leave_reason: leave?.reason ?? null,

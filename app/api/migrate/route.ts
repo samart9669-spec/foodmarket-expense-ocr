@@ -121,6 +121,27 @@ export async function POST() {
     await run('ALTER TABLE attendance ADD COLUMN cash_advance REAL DEFAULT 0', 'attendance.cash_advance')
     await run('ALTER TABLE attendance ADD COLUMN net_pay REAL DEFAULT 0', 'attendance.net_pay')
     await run('ALTER TABLE attendance ADD COLUMN approved INTEGER DEFAULT 0', 'attendance.approved')
+    await run('ALTER TABLE attendance ADD COLUMN early_out INTEGER DEFAULT 0', 'attendance.early_out')
+    await run('ALTER TABLE attendance ADD COLUMN offsite_request_id TEXT', 'attendance.offsite_request_id')
+
+    // Offsite work requests
+    await run(`
+      CREATE TABLE IF NOT EXISTS offsite_requests (
+        id TEXT PRIMARY KEY,
+        employee_id TEXT NOT NULL,
+        date TEXT NOT NULL,
+        location_name TEXT NOT NULL,
+        latitude REAL NOT NULL,
+        longitude REAL NOT NULL,
+        radius_meters INTEGER DEFAULT 300,
+        reason TEXT,
+        status TEXT DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
+        admin_note TEXT,
+        reviewed_at TEXT,
+        created_at TEXT DEFAULT (datetime('now','localtime')),
+        FOREIGN KEY (employee_id) REFERENCES employees(id)
+      )
+    `, 'offsite_requests table')
     await run("ALTER TABLE employees ADD COLUMN salary_type TEXT DEFAULT 'daily'", 'employees.salary_type')
     await run('ALTER TABLE employees ADD COLUMN monthly_salary REAL DEFAULT 0', 'employees.monthly_salary')
     await run("ALTER TABLE employees ADD COLUMN job_title TEXT DEFAULT ''", 'employees.job_title')

@@ -1,5 +1,6 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { getTodayString } from '@/lib/utils'
+import { ensureAttendanceStatusColumns, ensureOffsiteRequestsTable } from '@/lib/db-tables'
 
 export const runtime = 'edge'
 
@@ -8,6 +9,8 @@ export async function GET() {
     const { env } = getRequestContext()
     const db = env.DB
     const today = getTodayString()
+    await ensureAttendanceStatusColumns(db)
+    await ensureOffsiteRequestsTable(db)
 
     const [
       totalEmployees,
@@ -28,7 +31,7 @@ export async function GET() {
       db.prepare(`
         SELECT
           a.id, a.employee_id, a.date, a.check_in, a.check_out,
-          a.status, a.regular_hours, a.ot_hours, a.notes,
+          a.status, a.regular_hours, a.ot_hours, a.notes, a.early_out,
           e.name        AS employee_name,
           e.employee_type,
           e.qr_code     AS employee_code,
@@ -38,12 +41,14 @@ export async function GET() {
           sp_primary.name  AS primary_point_name,
           sh.name          AS shift_name,
           sh.start_time    AS shift_start,
-          sh.end_time      AS shift_end
+          sh.end_time      AS shift_end,
+          o.location_name  AS offsite_location
         FROM attendance a
         LEFT JOIN employees   e          ON a.employee_id   = e.id
         LEFT JOIN sales_points sp_today  ON a.sales_point_id = sp_today.id
         LEFT JOIN sales_points sp_primary ON e.sales_point_id = sp_primary.id
         LEFT JOIN shifts       sh         ON a.shift_id       = sh.id
+        LEFT JOIN offsite_requests o      ON a.offsite_request_id = o.id
         WHERE a.date = ?
         ORDER BY a.check_in DESC
         LIMIT 20
