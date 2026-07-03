@@ -1,6 +1,14 @@
 // On-demand table creation so features work even on databases that haven't
 // run /api/migrate yet. Keep DDL in sync with app/api/migrate/route.ts.
 
+export async function ensureAttendanceApprovedColumn(db: any) {
+  try {
+    await db.prepare('ALTER TABLE attendance ADD COLUMN approved INTEGER DEFAULT 0').run()
+  } catch {
+    // duplicate column — already present
+  }
+}
+
 // Fixed work-schedule columns for employees without shifts (e.g. head office
 // staff working 08:00-18:00 Mon-Fri). work_days is comma-separated JS day
 // numbers (0=Sun ... 6=Sat), e.g. '1,2,3,4,5'.

@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
           WHERE a2.employee_id = e.id AND a2.date = ? LIMIT 1
         )
         WHERE e.is_active = 1
+          AND (e.job_title IS NULL OR e.job_title IN ('', 'kitchen', 'sales'))
         ORDER BY e.name ASC
       `).bind(date).all(),
 

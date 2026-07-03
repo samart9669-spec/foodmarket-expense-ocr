@@ -1,6 +1,8 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { generateId, getTodayString } from '@/lib/utils'
 import { getGeoTarget, validateGeoPosition } from '@/lib/geo'
+import { isOfficeEmployee } from '@/lib/auth-server'
+import { ensureAttendanceApprovedColumn } from '@/lib/db-tables'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -43,12 +45,16 @@ export async function POST(request: NextRequest) {
     const existing = await db.prepare('SELECT * FROM attendance WHERE employee_id = ? AND date = ?')
       .bind(employee_id, today).first() as any
 
+    // Head office staff skip the daily time-approval step — record as approved
+    const autoApprove = isOfficeEmployee(employee.job_title) ? 1 : 0
+    if (autoApprove) await ensureAttendanceApprovedColumn(db)
+
     if (existing) {
       if (existing.check_in) {
         return Response.json({ error: 'เช็คอินไปแล้ววันนี้', check_in: existing.check_in }, { status: 409 })
       }
-      await db.prepare('UPDATE attendance SET check_in=?, check_in_method=?, check_in_lat=?, check_in_lng=? WHERE id=?')
-        .bind(checkInTime, method, latitude ?? null, longitude ?? null, existing.id).run()
+      await db.prepare('UPDATE attendance SET check_in=?, check_in_method=?, check_in_lat=?, check_in_lng=?, approved=MAX(COALESCE(approved,0), ?) WHERE id=?')
+        .bind(checkInTime, method, latitude ?? null, longitude ?? null, autoApprove, existing.id).run()
     } else {
       let status = 'present'
       if (shift_id) {
@@ -64,9 +70,9 @@ export async function POST(request: NextRequest) {
       }
       const id = generateId()
       await db.prepare(`
-        INSERT INTO attendance (id, employee_id, date, shift_id, check_in, check_in_method, sales_point_id, status, check_in_lat, check_in_lng)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(id, employee_id, today, shift_id || null, checkInTime, method, sales_point_id || null, status, latitude ?? null, longitude ?? null).run()
+        INSERT INTO attendance (id, employee_id, date, shift_id, check_in, check_in_method, sales_point_id, status, check_in_lat, check_in_lng, approved)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(id, employee_id, today, shift_id || null, checkInTime, method, sales_point_id || null, status, latitude ?? null, longitude ?? null, autoApprove).run()
     }
 
     return Response.json({

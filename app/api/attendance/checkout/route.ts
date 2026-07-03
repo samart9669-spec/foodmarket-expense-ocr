@@ -1,6 +1,8 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { getTodayString, calculateHoursWorked, calculateOTHours } from '@/lib/utils'
 import { getGeoTarget, validateGeoPosition } from '@/lib/geo'
+import { isOfficeEmployee } from '@/lib/auth-server'
+import { ensureAttendanceApprovedColumn } from '@/lib/db-tables'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -26,7 +28,7 @@ export async function POST(request: NextRequest) {
     const employee = await db
       .prepare('SELECT * FROM employees WHERE id = ? AND is_active = 1')
       .bind(employee_id)
-      .first() as { id: string; name: string; employee_type: string; sales_point_id: string | null } | null
+      .first() as { id: string; name: string; employee_type: string; sales_point_id: string | null; job_title: string | null } | null
 
     if (!employee) {
       return Response.json({ error: 'ไม่พบข้อมูลพนักงาน' }, { status: 404 })
@@ -70,13 +72,18 @@ export async function POST(request: NextRequest) {
     const regularHours = Math.min(totalHours, 8)
     const otHours = calculateOTHours(totalHours)
 
+    // Head office staff skip the daily time-approval step — record as approved
+    const autoApprove = isOfficeEmployee(employee.job_title) ? 1 : 0
+    if (autoApprove) await ensureAttendanceApprovedColumn(db)
+
     await db
       .prepare(`
         UPDATE attendance
-        SET check_out = ?, check_out_method = ?, regular_hours = ?, ot_hours = ?, check_out_lat = ?, check_out_lng = ?
+        SET check_out = ?, check_out_method = ?, regular_hours = ?, ot_hours = ?, check_out_lat = ?, check_out_lng = ?,
+            approved = MAX(COALESCE(approved, 0), ?)
         WHERE id = ?
       `)
-      .bind(checkOutTime, method, regularHours, otHours, latitude ?? null, longitude ?? null, existing.id)
+      .bind(checkOutTime, method, regularHours, otHours, latitude ?? null, longitude ?? null, autoApprove, existing.id)
       .run()
 
     const updated = await db.prepare('SELECT * FROM attendance WHERE id = ?').bind(existing.id).first()

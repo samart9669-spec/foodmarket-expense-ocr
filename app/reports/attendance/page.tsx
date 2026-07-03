@@ -3,6 +3,7 @@
 export const runtime = 'edge'
 
 import { useState, useEffect, useMemo } from 'react'
+import Link from 'next/link'
 
 interface StatRow {
   employee_id: string
@@ -180,7 +181,15 @@ export default function AttendanceStatsPage() {
                     </tr>
                     {byDept[dept].map(r => (
                       <tr key={r.employee_id} className="border-b border-gray-50 hover:bg-gray-50/60 transition-colors">
-                        <td className="px-3 py-3 font-medium text-gray-900">{r.name}</td>
+                        <td className="px-3 py-3">
+                          <Link href={`/reports/attendance/detail?employee_id=${r.employee_id}&month=${month}`}
+                            className="font-medium text-blue-700 hover:text-blue-900 hover:underline inline-flex items-center gap-1">
+                            {r.name}
+                            <svg className="w-3.5 h-3.5 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </Link>
+                        </td>
                         <td className="px-3 py-3 text-center text-green-700">{r.present}</td>
                         <td className={`px-3 py-3 text-center ${r.late > 0 ? 'text-orange-500 font-semibold' : 'text-gray-400'}`}>{r.late}</td>
                         <td className={`px-3 py-3 text-center ${r.leave > 0 ? 'text-blue-600 font-semibold' : 'text-gray-400'}`}>{r.leave}</td>
