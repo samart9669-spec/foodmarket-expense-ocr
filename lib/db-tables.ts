@@ -1,5 +1,18 @@
 // On-demand table creation so features work even on databases that haven't
 // run /api/migrate yet. Keep DDL in sync with app/api/migrate/route.ts.
+
+// Fixed work-schedule columns for employees without shifts (e.g. head office
+// staff working 08:00-18:00 Mon-Fri). work_days is comma-separated JS day
+// numbers (0=Sun ... 6=Sat), e.g. '1,2,3,4,5'.
+export async function ensureEmployeeScheduleColumns(db: any) {
+  for (const column of ['work_start TEXT', 'work_end TEXT', 'work_days TEXT']) {
+    try {
+      await db.prepare(`ALTER TABLE employees ADD COLUMN ${column}`).run()
+    } catch {
+      // duplicate column — already present
+    }
+  }
+}
 export async function ensureLeaveRequestsTable(db: any) {
   await db.prepare(`
     CREATE TABLE IF NOT EXISTS leave_requests (

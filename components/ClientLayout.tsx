@@ -18,6 +18,7 @@ const PAGE_LABELS: Record<string, string> = {
   '/admin/leave': 'อนุมัติใบลา',
   '/admin/manage': 'จัดการระบบ',
   '/branches': 'จัดการสาขา',
+  '/reports/attendance': 'สถิติขาด ลา มาสาย',
 }
 
 function getBreadcrumbs(pathname: string): { label: string; href: string }[] {

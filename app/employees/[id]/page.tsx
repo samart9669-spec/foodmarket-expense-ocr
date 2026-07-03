@@ -33,6 +33,7 @@ export default function EmployeeDetailPage() {
   const [form, setForm] = useState({
     name: '', job_title: 'kitchen', employee_type: 'kitchen', salary_type: 'daily',
     sales_point_id: '', daily_rate: 350, monthly_salary: 0, ot_rate: 50, commission_rate: 0, phone: '',
+    work_start: '08:00', work_end: '18:00', work_days: [1, 2, 3, 4, 5] as number[],
   })
 
   useEffect(() => {
@@ -61,6 +62,11 @@ export default function EmployeeDetailPage() {
           ot_rate: emp.ot_rate,
           commission_rate: emp.commission_rate || 0,
           phone: emp.phone || '',
+          work_start: emp.work_start || '08:00',
+          work_end: emp.work_end || '18:00',
+          work_days: emp.work_days
+            ? String(emp.work_days).split(',').map(Number).filter((n: number) => !Number.isNaN(n))
+            : [1, 2, 3, 4, 5],
         })
       }
       setSalesPoints(spData.salesPoints || [])
@@ -68,14 +74,30 @@ export default function EmployeeDetailPage() {
     })
   }, [id])
 
+  const isOfficePosition = positionPreset === 'head_office' || positionPreset === 'other'
+
   const handlePositionChange = (preset: string) => {
     setPositionPreset(preset)
     if (preset !== 'other') {
       const employeeType = preset === 'sales' ? 'sales' : 'kitchen'
-      setForm(f => ({ ...f, job_title: preset, employee_type: employeeType }))
+      setForm(f => ({
+        ...f,
+        job_title: preset,
+        employee_type: employeeType,
+        ...(preset === 'head_office' ? { salary_type: 'monthly' } : {}),
+      }))
     } else {
       setForm(f => ({ ...f, job_title: '', employee_type: 'kitchen' }))
     }
+  }
+
+  const toggleWorkDay = (day: number) => {
+    setForm(f => ({
+      ...f,
+      work_days: f.work_days.includes(day)
+        ? f.work_days.filter(d => d !== day)
+        : [...f.work_days, day].sort(),
+    }))
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -91,6 +113,9 @@ export default function EmployeeDetailPage() {
           sales_point_id: positionPreset === 'sales' ? form.sales_point_id : null,
           monthly_salary: form.salary_type === 'monthly' ? form.monthly_salary : 0,
           daily_rate: form.salary_type === 'monthly' ? 0 : form.daily_rate,
+          work_start: isOfficePosition ? form.work_start : undefined,
+          work_end: isOfficePosition ? form.work_end : undefined,
+          work_days: isOfficePosition ? form.work_days.join(',') : undefined,
         }),
       })
       const data = await res.json() as any
@@ -176,6 +201,37 @@ export default function EmployeeDetailPage() {
                 <option value="">-- เลือกจุดขาย --</option>
                 {salesPoints.map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
               </select>
+            </div>
+          )}
+          {isOfficePosition && (
+            <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 space-y-3">
+              <p className="text-sm font-medium text-purple-800">เวลาทำงาน (สังกัดสำนักงานใหญ่ — ไม่มีกะ)</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="label">เวลาเข้างาน</label>
+                  <input type="time" className="input-field" value={form.work_start}
+                    onChange={e => setForm({ ...form, work_start: e.target.value })} />
+                </div>
+                <div>
+                  <label className="label">เวลาเลิกงาน</label>
+                  <input type="time" className="input-field" value={form.work_end}
+                    onChange={e => setForm({ ...form, work_end: e.target.value })} />
+                </div>
+              </div>
+              <div>
+                <label className="label">วันทำงาน</label>
+                <div className="flex flex-wrap gap-2">
+                  {[{ d: 1, l: 'จ' }, { d: 2, l: 'อ' }, { d: 3, l: 'พ' }, { d: 4, l: 'พฤ' }, { d: 5, l: 'ศ' }, { d: 6, l: 'ส' }, { d: 0, l: 'อา' }].map(({ d, l }) => (
+                    <button key={d} type="button" onClick={() => toggleWorkDay(d)}
+                      className={`w-11 h-11 rounded-lg text-sm font-medium transition-colors ${
+                        form.work_days.includes(d) ? 'bg-purple-600 text-white' : 'bg-white border border-gray-300 text-gray-500 hover:border-purple-400'
+                      }`}>
+                      {l}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 mt-1.5">มาสายเมื่อเข้างานเกิน 15 นาที · ตรวจ GPS กับสำนักงานใหญ่</p>
+              </div>
             </div>
           )}
           <div>

@@ -1,5 +1,6 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { getRoleFromRequest, isOfficeEmployee } from '@/lib/auth-server'
+import { ensureEmployeeScheduleColumns } from '@/lib/db-tables'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -59,6 +60,9 @@ export async function PUT(
       qr_code?: string
       phone?: string
       is_active?: number
+      work_start?: string
+      work_end?: string
+      work_days?: string
     }
 
     const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(params.id).first<any>()
@@ -75,10 +79,11 @@ export async function PUT(
       return Response.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const { name, job_title, salary_type, sales_point_id, daily_rate, monthly_salary, ot_rate, commission_rate, face_descriptor, qr_code, phone, is_active } = body
+    const { name, job_title, salary_type, sales_point_id, daily_rate, monthly_salary, ot_rate, commission_rate, face_descriptor, qr_code, phone, is_active, work_start, work_end, work_days } = body
 
     const employee_type = job_title !== undefined ? (job_title === 'sales' ? 'sales' : 'kitchen') : undefined
 
+    await ensureEmployeeScheduleColumns(db)
     await db.prepare(`
       UPDATE employees SET
         name = COALESCE(?, name),
@@ -93,13 +98,16 @@ export async function PUT(
         face_descriptor = COALESCE(?, face_descriptor),
         qr_code = COALESCE(?, qr_code),
         phone = COALESCE(?, phone),
-        is_active = COALESCE(?, is_active)
+        is_active = COALESCE(?, is_active),
+        work_start = COALESCE(?, work_start),
+        work_end = COALESCE(?, work_end),
+        work_days = COALESCE(?, work_days)
       WHERE id = ?
     `).bind(
       name ?? null, employee_type ?? null, job_title ?? null, salary_type ?? null, sales_point_id ?? null,
       daily_rate ?? null, monthly_salary ?? null, ot_rate ?? null, commission_rate ?? null,
       face_descriptor ?? null, qr_code ?? null, phone ?? null,
-      is_active ?? null, params.id
+      is_active ?? null, work_start ?? null, work_end ?? null, work_days ?? null, params.id
     ).run()
 
     const updated = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(params.id).first()

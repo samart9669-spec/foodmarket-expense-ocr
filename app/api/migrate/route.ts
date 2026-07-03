@@ -125,6 +125,11 @@ export async function POST() {
     await run('ALTER TABLE employees ADD COLUMN monthly_salary REAL DEFAULT 0', 'employees.monthly_salary')
     await run("ALTER TABLE employees ADD COLUMN job_title TEXT DEFAULT ''", 'employees.job_title')
 
+    // Fixed work schedule for no-shift employees (head office 08:00-18:00 Mon-Fri)
+    await run('ALTER TABLE employees ADD COLUMN work_start TEXT', 'employees.work_start')
+    await run('ALTER TABLE employees ADD COLUMN work_end TEXT', 'employees.work_end')
+    await run('ALTER TABLE employees ADD COLUMN work_days TEXT', 'employees.work_days')
+
     return Response.json({ ok: true, results })
   } catch (error) {
     return Response.json({ error: String(error) }, { status: 500 })

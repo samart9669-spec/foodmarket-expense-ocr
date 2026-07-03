@@ -1,6 +1,7 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { generateId } from '@/lib/utils'
 import { getRoleFromRequest, isOfficeEmployee } from '@/lib/auth-server'
+import { ensureEmployeeScheduleColumns } from '@/lib/db-tables'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -74,6 +75,9 @@ export async function POST(request: NextRequest) {
       face_photo?: string
       qr_code?: string
       phone?: string
+      work_start?: string
+      work_end?: string
+      work_days?: string
     }
 
     const {
@@ -89,6 +93,9 @@ export async function POST(request: NextRequest) {
       face_photo,
       qr_code,
       phone,
+      work_start,
+      work_end,
+      work_days,
     } = body
 
     if (!name) {
@@ -105,13 +112,15 @@ export async function POST(request: NextRequest) {
     const id = generateId()
     const generatedQR = qr_code || `EMP-${id.substring(0, 8).toUpperCase()}`
 
+    await ensureEmployeeScheduleColumns(db)
     await db.prepare(`
-      INSERT INTO employees (id, name, employee_type, job_title, salary_type, sales_point_id, daily_rate, monthly_salary, ot_rate, commission_rate, face_descriptor, face_photo, qr_code, phone, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      INSERT INTO employees (id, name, employee_type, job_title, salary_type, sales_point_id, daily_rate, monthly_salary, ot_rate, commission_rate, face_descriptor, face_photo, qr_code, phone, work_start, work_end, work_days, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
     `).bind(
       id, name, employee_type, job_title, salary_type, sales_point_id || null,
       daily_rate, monthly_salary, ot_rate, commission_rate,
-      face_descriptor || null, face_photo || null, generatedQR, phone || null
+      face_descriptor || null, face_photo || null, generatedQR, phone || null,
+      work_start || null, work_end || null, work_days || null
     ).run()
 
     const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(id).first()
