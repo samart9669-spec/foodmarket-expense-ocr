@@ -2,7 +2,7 @@
 
 export const runtime = 'edge'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 
 interface Employee { id: string; name: string; employee_type: string }
@@ -16,6 +16,8 @@ export default function EmployeeOffsitePage() {
   const [gpsLoading, setGpsLoading] = useState(false)
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null)
   const [search, setSearch] = useState('')
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const pickerRef = useRef<HTMLDivElement>(null)
 
   const today = new Date().toISOString().split('T')[0]
 
@@ -24,7 +26,18 @@ export default function EmployeeOffsitePage() {
     setForm(f => ({ ...f, date: new Date().toISOString().split('T')[0] }))
   }, [])
 
-  const filtered = employees.filter(e => e.name.includes(search))
+  // Close the dropdown when clicking outside the picker
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) setDropdownOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [])
+
+  // Case-insensitive search; empty search shows the full list
+  const q = search.trim().toLowerCase()
+  const filtered = q ? employees.filter(e => e.name.toLowerCase().includes(q)) : employees
   const selectedEmp = employees.find(e => e.id === form.employee_id)
 
   const getGps = () => {
@@ -110,28 +123,34 @@ export default function EmployeeOffsitePage() {
                 className="text-sm text-gray-400 hover:text-white">เปลี่ยน</button>
             </div>
           ) : (
-            <>
-              <input
-                type="text"
-                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
-                placeholder="พิมพ์ชื่อเพื่อค้นหา..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
-              {search && (
-                <div className="mt-2 bg-gray-900 border border-gray-700 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
+            <div ref={pickerRef}>
+              <div className="relative">
+                <input
+                  type="text"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
+                  placeholder="แตะเพื่อเลือกรายชื่อ หรือพิมพ์ค้นหา..."
+                  value={search}
+                  onChange={e => { setSearch(e.target.value); setDropdownOpen(true) }}
+                  onFocus={() => setDropdownOpen(true)}
+                />
+                <svg className="w-5 h-5 text-gray-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+              {dropdownOpen && (
+                <div className="mt-2 bg-gray-900 border border-gray-700 rounded-xl overflow-hidden max-h-60 overflow-y-auto">
                   {filtered.length === 0 ? (
                     <p className="px-4 py-3 text-gray-500 text-sm">ไม่พบพนักงาน</p>
                   ) : filtered.map(emp => (
                     <button key={emp.id} type="button"
-                      onClick={() => { setForm(f => ({ ...f, employee_id: emp.id })); setSearch('') }}
+                      onClick={() => { setForm(f => ({ ...f, employee_id: emp.id })); setSearch(''); setDropdownOpen(false) }}
                       className="w-full text-left px-4 py-3 hover:bg-gray-800 border-b border-gray-800 last:border-0 transition-colors">
                       {emp.name}
                     </button>
                   ))}
                 </div>
               )}
-            </>
+            </div>
           )}
         </div>
 
