@@ -12,6 +12,7 @@ const QRScanner = dynamic(() => import('@/components/QRScanner'), { ssr: false }
 interface Employee { id: string; name: string; employee_type: string; face_descriptor: string | null; face_photo: string | null; qr_code: string | null }
 interface SalesPoint { id: string; name: string; location: string; latitude: number | null; longitude: number | null; radius_meters: number | null }
 interface Shift { id: string; name: string; start_time: string; end_time: string }
+interface OffsiteApproval { id: string; employee_id: string; employee_name: string; location_name: string }
 
 type GpsState = 'idle' | 'getting' | 'ok' | 'far' | 'no-gps' | 'denied'
 type ScanMode = 'checkin' | 'checkout'
@@ -37,6 +38,7 @@ export default function EmployeeCheckinPage() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [salesPoints, setSalesPoints] = useState<SalesPoint[]>([])
   const [shifts, setShifts] = useState<Shift[]>([])
+  const [offsiteToday, setOffsiteToday] = useState<OffsiteApproval[]>([])
   const [tab, setTab] = useState<'face' | 'qr'>('face')
   const [scanMode, setScanMode] = useState<ScanMode>('checkin')
   const [selectedBranch, setSelectedBranch] = useState('')
@@ -49,14 +51,17 @@ export default function EmployeeCheckinPage() {
   const posRef = useRef<{ lat: number; lng: number } | null>(null)
 
   useEffect(() => {
+    const todayStr = new Date().toISOString().split('T')[0]
     Promise.all([
       fetch('/api/employees').then(r => r.json()).catch(() => ({ employees: [] })),
       fetch('/api/sales-points').then(r => r.json()).catch(() => ({ salesPoints: [] })),
       fetch('/api/shifts').then(r => r.json()).catch(() => ({ shifts: [] })),
-    ]).then(([e, sp, sh]: any) => {
+      fetch(`/api/offsite-requests?status=approved&date=${todayStr}`).then(r => r.json()).catch(() => ({ offsiteRequests: [] })),
+    ]).then(([e, sp, sh, off]: any) => {
       setEmployees(e.employees || [])
       setSalesPoints(sp.salesPoints || [])
       setShifts(sh.shifts || [])
+      setOffsiteToday(off.offsiteRequests || [])
     })
   }, [])
 
@@ -69,7 +74,7 @@ export default function EmployeeCheckinPage() {
         setGpsCoords(coords)
         posRef.current = coords
 
-        if (selectedBranch) {
+        if (selectedBranch && selectedBranch !== 'offsite') {
           const branch = salesPoints.find(s => s.id === selectedBranch)
           if (branch?.latitude && branch?.longitude) {
             const dist = distanceMeters(coords.lat, coords.lng, branch.latitude, branch.longitude)
@@ -78,6 +83,7 @@ export default function EmployeeCheckinPage() {
             return
           }
         }
+        setGpsDistance(null)
         setGpsState('ok')
       },
       () => setGpsState('denied'),
@@ -85,9 +91,11 @@ export default function EmployeeCheckinPage() {
     )
   }, [selectedBranch, salesPoints])
 
+  // Fetch GPS immediately on load — coordinates are needed even when no branch
+  // is selected (e.g. approved offsite work or head office staff)
   useEffect(() => {
-    if (selectedBranch) getGPS()
-  }, [selectedBranch, getGPS])
+    getGPS()
+  }, [getGPS])
 
   const doAction = useCallback(async (employeeId: string, employeeName: string, method: 'face' | 'qr') => {
     if (loading) return
@@ -101,7 +109,7 @@ export default function EmployeeCheckinPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           employee_id: employeeId, method,
-          sales_point_id: selectedBranch || undefined,
+          sales_point_id: selectedBranch && selectedBranch !== 'offsite' ? selectedBranch : undefined,
           shift_id: selectedShift || undefined,
           latitude: coords?.lat, longitude: coords?.lng,
         }),
@@ -163,6 +171,9 @@ export default function EmployeeCheckinPage() {
             value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}>
             <option value="">— เลือกสาขา / จุดขาย —</option>
             {salesPoints.map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
+            {offsiteToday.length > 0 && (
+              <option value="offsite">📍 ปฏิบัติงานนอกสถานที่ (อนุมัติแล้ววันนี้)</option>
+            )}
           </select>
           <select className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-4 py-3"
             value={selectedShift} onChange={e => setSelectedShift(e.target.value)}>
@@ -171,8 +182,50 @@ export default function EmployeeCheckinPage() {
           </select>
         </div>
 
-        {/* GPS status */}
-        {selectedBranch && gpsHasCoords && (
+        {/* Offsite approvals today */}
+        {(selectedBranch === 'offsite' || (!selectedBranch && offsiteToday.length > 0)) && (
+          <div className="rounded-xl px-4 py-3 bg-purple-900/50 border border-purple-600 text-sm space-y-1">
+            <p className="font-semibold text-purple-200 flex items-center gap-1.5">
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              ได้รับอนุมัติปฏิบัติงานนอกสถานที่วันนี้
+            </p>
+            {offsiteToday.map(o => (
+              <p key={o.id} className="text-purple-300 text-xs">• {o.employee_name} — {o.location_name}</p>
+            ))}
+            <p className="text-purple-400 text-xs pt-0.5">สแกนได้เลย ระบบจะตรวจตำแหน่งกับจุดที่ได้รับอนุมัติโดยอัตโนมัติ</p>
+          </div>
+        )}
+
+        {/* GPS status — always visible so coordinates are ready before scanning */}
+        {(!selectedBranch || selectedBranch === 'offsite' || !gpsHasCoords) && (
+          <div className={`rounded-xl px-4 py-3 flex items-center gap-3 text-sm ${
+            gpsState === 'ok' ? 'bg-green-900 border border-green-600' :
+            gpsState === 'getting' ? 'bg-blue-900 border border-blue-600' :
+            gpsState === 'denied' ? 'bg-yellow-900 border border-yellow-600' :
+            'bg-gray-800 border border-gray-700'
+          }`}>
+            {gpsState === 'getting' && <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />}
+            {gpsState === 'ok' && <svg className="w-5 h-5 text-green-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
+            {(gpsState === 'denied' || gpsState === 'no-gps') && <svg className="w-5 h-5 text-yellow-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>}
+            <div className="flex-1">
+              {gpsState === 'idle' && <button onClick={getGPS} className="text-blue-400 underline">ตรวจสอบตำแหน่ง GPS</button>}
+              {gpsState === 'getting' && <span className="text-blue-300">กำลังหาตำแหน่ง...</span>}
+              {gpsState === 'ok' && <span className="text-green-300">พบตำแหน่ง GPS ✓ พร้อมสแกน</span>}
+              {gpsState === 'far' && <span className="text-green-300">พบตำแหน่ง GPS ✓ พร้อมสแกน</span>}
+              {gpsState === 'denied' && <span className="text-yellow-300">ไม่ได้รับสิทธิ์ GPS — กรุณาอนุญาตใน Settings แล้วกดรีเฟรช</span>}
+              {gpsState === 'no-gps' && <span className="text-gray-400">อุปกรณ์นี้ไม่รองรับ GPS</span>}
+            </div>
+            {gpsState !== 'getting' && gpsState !== 'idle' && (
+              <button onClick={getGPS} className="text-xs text-gray-400 underline ml-2">รีเฟรช</button>
+            )}
+          </div>
+        )}
+
+        {/* Branch GPS distance */}
+        {selectedBranch && selectedBranch !== 'offsite' && gpsHasCoords && (
           <div className={`rounded-xl px-4 py-3 flex items-center gap-3 text-sm ${
             gpsState === 'ok' ? 'bg-green-900 border border-green-600' :
             gpsState === 'far' ? 'bg-red-900 border border-red-600' :
