@@ -1,5 +1,5 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
-import { getTodayString, calculateHoursWorked, calculateOTHours } from '@/lib/utils'
+import { getTodayString, calculateHoursWorked, calculateOTHours, getBangkokDateTimeString, getBangkokMinutesOfDay } from '@/lib/utils'
 import { getGeoTarget, validateGeoPosition } from '@/lib/geo'
 import { isOfficeEmployee } from '@/lib/auth-server'
 import { ensureAttendanceApprovedColumn, ensureAttendanceStatusColumns, getApprovedOffsite } from '@/lib/db-tables'
@@ -75,8 +75,8 @@ export async function POST(request: NextRequest) {
     const geoError = validateGeoPosition(geoTarget, latitude, longitude)
     if (geoError) return Response.json(geoError, { status: 422 })
 
-    const now = new Date()
-    const checkOutTime = `${today} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+    const checkOutTime = getBangkokDateTimeString()
+    const nowMinutes = getBangkokMinutesOfDay()
 
     const totalHours = calculateHoursWorked(existing.check_in, checkOutTime)
     const regularHours = Math.min(totalHours, 8)
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
     let earlyOut = 0
     if (endTimeStr) {
       const [eh, em] = endTimeStr.split(':').map(Number)
-      if (!Number.isNaN(eh) && now.getHours() * 60 + now.getMinutes() < eh * 60 + (em || 0)) {
+      if (!Number.isNaN(eh) && nowMinutes < eh * 60 + (em || 0)) {
         earlyOut = 1
       }
     }

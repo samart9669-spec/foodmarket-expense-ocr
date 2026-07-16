@@ -1,5 +1,5 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
-import { generateId, getTodayString } from '@/lib/utils'
+import { generateId, getTodayString, getBangkokDateTimeString } from '@/lib/utils'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -76,8 +76,8 @@ export async function POST(request: NextRequest) {
 
     const id = generateId()
     await db.prepare(
-      'INSERT INTO sales (id, employee_id, sales_point_id, date, amount, notes) VALUES (?, ?, ?, ?, ?, ?)'
-    ).bind(id, employee_id, sales_point_id, date, amount, notes || null).run()
+      'INSERT INTO sales (id, employee_id, sales_point_id, date, amount, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).bind(id, employee_id, sales_point_id, date, amount, notes || null, getBangkokDateTimeString()).run()
 
     const sale = await db.prepare(`
       SELECT s.*, e.name as employee_name, sp.name as sales_point_name

@@ -35,12 +35,14 @@ interface ScanResult {
   total_hours?: number
 }
 
-function thaiDateTime(utcStr: string | null | undefined): { date: string; time: string } | null {
-  if (!utcStr) return null
-  const d = new Date(utcStr.includes('T') ? utcStr : utcStr.replace(' ', 'T') + 'Z')
+// Stored values are already Bangkok wall-clock — display as-is, no conversion
+function thaiDateTime(str: string | null | undefined): { date: string; time: string } | null {
+  if (!str) return null
+  const [datePart, timePart = ''] = str.replace('T', ' ').split(' ')
+  const d = new Date(datePart + 'T00:00:00')
   return {
-    date: d.toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'long', year: 'numeric' }),
-    time: d.toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }),
+    date: Number.isNaN(d.getTime()) ? datePart : d.toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' }),
+    time: timePart.slice(0, 8) || '-',
   }
 }
 

@@ -13,42 +13,58 @@ export function formatDate(dateStr: string): string {
   return date.toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
-export function formatThaiTime(utcStr: string | null | undefined): string {
-  if (!utcStr) return '-'
-  // SQLite stores UTC without 'Z'; force UTC interpretation then convert to Bangkok
-  const iso = utcStr.includes('T') ? utcStr : utcStr.replace(' ', 'T') + 'Z'
-  return new Date(iso).toLocaleTimeString('th-TH', {
-    timeZone: 'Asia/Bangkok',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
+// All attendance timestamps are stored as Bangkok wall-clock strings
+// ("YYYY-MM-DD HH:MM:SS"). The server may run in UTC (Cloudflare), so
+// "now" is always derived from the epoch shifted to UTC+7 and read via
+// getUTC* — correct regardless of the server's own timezone.
+const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000
+
+function bangkokNow(): Date {
+  return new Date(Date.now() + BANGKOK_OFFSET_MS)
 }
 
-export function formatThaiDateTime(utcStr: string | null | undefined): string {
-  if (!utcStr) return '-'
-  const iso = utcStr.includes('T') ? utcStr : utcStr.replace(' ', 'T') + 'Z'
-  return new Date(iso).toLocaleString('th-TH', {
-    timeZone: 'Asia/Bangkok',
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', hour12: false,
-  })
+// Values are already Bangkok wall-clock — display them as stored, no conversion
+export function formatThaiTime(str: string | null | undefined): string {
+  if (!str) return '-'
+  const m = str.match(/(\d{2}):(\d{2})/)
+  return m ? `${m[1]}:${m[2]}` : '-'
+}
+
+export function formatThaiDateTime(str: string | null | undefined): string {
+  if (!str) return '-'
+  const [datePart] = str.replace('T', ' ').split(' ')
+  const m = str.match(/(\d{2}):(\d{2})/)
+  const d = new Date(datePart + 'T00:00:00')
+  const dateFmt = Number.isNaN(d.getTime())
+    ? datePart
+    : d.toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  return m ? `${dateFmt} ${m[1]}:${m[2]}` : dateFmt
 }
 
 export function getTodayString(): string {
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
+  const now = bangkokNow()
+  const year = now.getUTCFullYear()
+  const month = String(now.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(now.getUTCDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
 }
 
 export function getCurrentTimeString(): string {
-  const now = new Date()
-  const hours = String(now.getHours()).padStart(2, '0')
-  const minutes = String(now.getMinutes()).padStart(2, '0')
-  const seconds = String(now.getSeconds()).padStart(2, '0')
+  const now = bangkokNow()
+  const hours = String(now.getUTCHours()).padStart(2, '0')
+  const minutes = String(now.getUTCMinutes()).padStart(2, '0')
+  const seconds = String(now.getUTCSeconds()).padStart(2, '0')
   return `${hours}:${minutes}:${seconds}`
+}
+
+export function getBangkokDateTimeString(): string {
+  return `${getTodayString()} ${getCurrentTimeString()}`
+}
+
+// Minutes since midnight, Bangkok time — for comparing against shift times
+export function getBangkokMinutesOfDay(): number {
+  const now = bangkokNow()
+  return now.getUTCHours() * 60 + now.getUTCMinutes()
 }
 
 export function calculateHoursWorked(checkIn: string, checkOut: string): number {

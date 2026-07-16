@@ -70,12 +70,11 @@ const CHART_COLORS = [
   'bg-teal-400',
 ]
 
+// Stored values are Bangkok wall-clock strings — show the HH:MM part directly
 function formatTime(dt: string | null): string {
   if (!dt) return '-'
-  try {
-    const d = new Date(dt)
-    return d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
-  } catch { return '-' }
+  const m = dt.match(/(\d{2}):(\d{2})/)
+  return m ? `${m[1]}:${m[2]}` : '-'
 }
 
 function getInitials(name: string): string {

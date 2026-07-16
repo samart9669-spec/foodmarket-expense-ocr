@@ -1,5 +1,5 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
-import { generateId, getTodayString } from '@/lib/utils'
+import { generateId, getTodayString, getBangkokDateTimeString, getBangkokMinutesOfDay } from '@/lib/utils'
 import { getGeoTarget, validateGeoPosition } from '@/lib/geo'
 import { isOfficeEmployee } from '@/lib/auth-server'
 import { ensureAttendanceApprovedColumn, ensureAttendanceStatusColumns, getApprovedOffsite } from '@/lib/db-tables'
@@ -48,8 +48,8 @@ export async function POST(request: NextRequest) {
       : await getGeoTarget(db, sales_point_id || employee.sales_point_id || null)
     const geoError = validateGeoPosition(geoTarget, latitude, longitude)
     if (geoError) return Response.json(geoError, { status: 422 })
-    const now = new Date()
-    const checkInTime = `${today} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+    const checkInTime = getBangkokDateTimeString()
+    const nowMinutes = getBangkokMinutesOfDay()
 
     const existing = await db.prepare('SELECT * FROM attendance WHERE employee_id = ? AND date = ?')
       .bind(employee_id, today).first() as any
@@ -71,12 +71,12 @@ export async function POST(request: NextRequest) {
         const shift = await db.prepare('SELECT * FROM shifts WHERE id = ?').bind(shift_id).first() as any
         if (shift) {
           const [h, m] = shift.start_time.split(':').map(Number)
-          if (now.getHours() * 60 + now.getMinutes() > h * 60 + m + 15) status = 'late'
+          if (nowMinutes > h * 60 + m + 15) status = 'late'
         }
       } else if (employee.work_start) {
         // No shift — fixed personal schedule (e.g. head office 08:00-18:00), 15-min grace
         const [h, m] = String(employee.work_start).split(':').map(Number)
-        if (!Number.isNaN(h) && now.getHours() * 60 + now.getMinutes() > h * 60 + (m || 0) + 15) status = 'late'
+        if (!Number.isNaN(h) && nowMinutes > h * 60 + (m || 0) + 15) status = 'late'
       }
       const id = generateId()
       await db.prepare(`

@@ -44,22 +44,16 @@ const DAY_TYPES = [
   { value: 'holiday', label: 'วันหยุดนักขัตฤกษ์', multiplier_key: 'holiday_wage_multiplier' },
 ]
 
-function utcToLocalHHMM(utcStr: string | null): string {
-  if (!utcStr) return ''
-  const iso = utcStr.includes('T') ? utcStr : utcStr.replace(' ', 'T') + 'Z'
-  const d = new Date(iso)
-  const h = d.getUTCHours() + 7
-  const m = d.getUTCMinutes()
-  return `${String(h % 24).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+// Attendance timestamps are stored as Bangkok wall-clock strings — no conversion
+function storedToHHMM(str: string | null): string {
+  if (!str) return ''
+  const m = str.match(/(\d{2}):(\d{2})/)
+  return m ? `${m[1]}:${m[2]}` : ''
 }
 
-function localHHMMtoUTC(dateStr: string, hhmm: string): string {
+function hhmmToStored(dateStr: string, hhmm: string): string {
   if (!hhmm) return ''
-  const [hh, mm] = hhmm.split(':').map(Number)
-  const utcH = hh - 7
-  const d = new Date(`${dateStr}T00:00:00Z`)
-  d.setUTCHours(utcH, mm, 0, 0)
-  return d.toISOString().replace('T', ' ').slice(0, 19)
+  return `${dateStr} ${hhmm}:00`
 }
 
 function calcMinutesDiff(fromHHMM: string, toHHMM: string): number {
@@ -148,8 +142,8 @@ export default function DailyApprovalPage() {
           shift_end: shiftEnd,
           regular_hours_shift: emp.regular_hours || defaultShift?.regular_hours || 8,
           break_minutes: breakMins,
-          check_in: att ? utcToLocalHHMM(att.check_in) : '',
-          check_out: att ? utcToLocalHHMM(att.check_out) : '',
+          check_in: att ? storedToHHMM(att.check_in) : '',
+          check_out: att ? storedToHHMM(att.check_out) : '',
           day_type: att?.day_type || 'normal',
           food_allowance: att?.food_allowance ?? parseFloat(s.allowance_food || '0'),
           split_shift_allowance: att?.split_shift_allowance ?? parseFloat(s.allowance_split_shift || '0'),
@@ -204,8 +198,8 @@ export default function DailyApprovalPage() {
           employee_id: r.employee_id,
           attendance_id: r.id,
           shift_id: r.shift_id,
-          check_in: r.check_in ? localHHMMtoUTC(date, r.check_in) : null,
-          check_out: r.check_out ? localHHMMtoUTC(date, r.check_out) : null,
+          check_in: r.check_in ? hhmmToStored(date, r.check_in) : null,
+          check_out: r.check_out ? hhmmToStored(date, r.check_out) : null,
           day_type: r.day_type,
           regular_hours: parseFloat(r.actual_hours.toFixed(2)),
           ot_hours: parseFloat(r.ot_hours.toFixed(2)),
