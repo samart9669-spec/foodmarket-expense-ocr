@@ -1,6 +1,7 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { NextRequest } from 'next/server'
 import { loginUser, verifySession } from '@/lib/admin-auth'
+import { runMigrations } from '@/lib/migrations'
 
 export const runtime = 'edge'
 
@@ -11,6 +12,11 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน' }, { status: 400 })
     }
     const { env } = getRequestContext()
+
+    // Keep the database schema current on every login — makes deployments
+    // self-updating without a manual /api/migrate call. Never blocks login.
+    try { await runMigrations(env.DB) } catch {}
+
     const result = await loginUser(env.DB, username.trim(), password)
     if (!result) return Response.json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' }, { status: 401 })
     return Response.json({ token: result.token, role: result.role, display_name: result.display_name, username: username.trim() })
