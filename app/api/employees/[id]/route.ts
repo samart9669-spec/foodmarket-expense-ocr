@@ -1,4 +1,6 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
+import { getRoleFromRequest, isOfficeEmployee } from '@/lib/auth-server'
+import { ensureEmployeeScheduleColumns } from '@/lib/db-tables'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -11,10 +13,20 @@ export async function GET(
     const { env } = getRequestContext()
     const db = env.DB
 
-    const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(params.id).first()
+    const role = await getRoleFromRequest(request, db)
+    if (role === 'viewer' || role === 'admin') {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(params.id).first<any>()
     if (!employee) {
       return Response.json({ error: 'Employee not found' }, { status: 404 })
     }
+
+    if (role === 'manager' && isOfficeEmployee(employee.job_title)) {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     return Response.json({ employee })
   } catch (error) {
     console.error('GET /api/employees/[id] error:', error)
@@ -30,44 +42,72 @@ export async function PUT(
     const { env } = getRequestContext()
     const db = env.DB
 
+    const role = await getRoleFromRequest(request, db)
+    if (!role || role === 'viewer' || role === 'admin') {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const body = await request.json() as {
       name?: string
-      employee_type?: string
+      job_title?: string
+      salary_type?: string
       sales_point_id?: string
       daily_rate?: number
+      monthly_salary?: number
       ot_rate?: number
       commission_rate?: number
       face_descriptor?: string
       qr_code?: string
       phone?: string
       is_active?: number
+      work_start?: string
+      work_end?: string
+      work_days?: string
     }
 
-    const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(params.id).first()
+    const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(params.id).first<any>()
     if (!employee) {
       return Response.json({ error: 'Employee not found' }, { status: 404 })
     }
 
-    const { name, employee_type, sales_point_id, daily_rate, ot_rate, commission_rate, face_descriptor, qr_code, phone, is_active } = body
+    // manager cannot edit office employees
+    if (role === 'manager' && isOfficeEmployee(employee.job_title)) {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    // manager cannot promote a non-office employee to office
+    if (role === 'manager' && body.job_title !== undefined && isOfficeEmployee(body.job_title)) {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
 
+    const { name, job_title, salary_type, sales_point_id, daily_rate, monthly_salary, ot_rate, commission_rate, face_descriptor, qr_code, phone, is_active, work_start, work_end, work_days } = body
+
+    const employee_type = job_title !== undefined ? (job_title === 'sales' ? 'sales' : 'kitchen') : undefined
+
+    await ensureEmployeeScheduleColumns(db)
     await db.prepare(`
       UPDATE employees SET
         name = COALESCE(?, name),
         employee_type = COALESCE(?, employee_type),
+        job_title = COALESCE(?, job_title),
+        salary_type = COALESCE(?, salary_type),
         sales_point_id = COALESCE(?, sales_point_id),
         daily_rate = COALESCE(?, daily_rate),
+        monthly_salary = COALESCE(?, monthly_salary),
         ot_rate = COALESCE(?, ot_rate),
         commission_rate = COALESCE(?, commission_rate),
         face_descriptor = COALESCE(?, face_descriptor),
         qr_code = COALESCE(?, qr_code),
         phone = COALESCE(?, phone),
-        is_active = COALESCE(?, is_active)
+        is_active = COALESCE(?, is_active),
+        work_start = COALESCE(?, work_start),
+        work_end = COALESCE(?, work_end),
+        work_days = COALESCE(?, work_days)
       WHERE id = ?
     `).bind(
-      name ?? null, employee_type ?? null, sales_point_id ?? null,
-      daily_rate ?? null, ot_rate ?? null, commission_rate ?? null,
+      name ?? null, employee_type ?? null, job_title ?? null, salary_type ?? null, sales_point_id ?? null,
+      daily_rate ?? null, monthly_salary ?? null, ot_rate ?? null, commission_rate ?? null,
       face_descriptor ?? null, qr_code ?? null, phone ?? null,
-      is_active ?? null, params.id
+      is_active ?? null, work_start ?? null, work_end ?? null, work_days ?? null, params.id
     ).run()
 
     const updated = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(params.id).first()
@@ -86,9 +126,18 @@ export async function DELETE(
     const { env } = getRequestContext()
     const db = env.DB
 
-    const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(params.id).first()
+    const role = await getRoleFromRequest(request, db)
+    if (!role || role === 'viewer' || role === 'admin') {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(params.id).first<any>()
     if (!employee) {
       return Response.json({ error: 'Employee not found' }, { status: 404 })
+    }
+
+    if (role === 'manager' && isOfficeEmployee(employee.job_title)) {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     await db.prepare('UPDATE employees SET is_active = 0 WHERE id = ?').bind(params.id).run()

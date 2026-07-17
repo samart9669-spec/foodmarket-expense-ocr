@@ -10,9 +10,10 @@ interface Shift {
   start_time: string
   end_time: string
   regular_hours: number
+  break_minutes: number
 }
 
-const emptyForm = { name: '', start_time: '08:00', end_time: '17:00', regular_hours: 8 }
+const emptyForm = { name: '', start_time: '08:00', end_time: '17:00', regular_hours: 8, break_minutes: 60 }
 
 function calcHours(start: string, end: string) {
   const [sh, sm] = start.split(':').map(Number)
@@ -57,7 +58,7 @@ export default function ShiftsPage() {
 
   const openEdit = (s: Shift) => {
     setEditId(s.id)
-    setForm({ name: s.name, start_time: s.start_time, end_time: s.end_time, regular_hours: s.regular_hours })
+    setForm({ name: s.name, start_time: s.start_time, end_time: s.end_time, regular_hours: s.regular_hours, break_minutes: s.break_minutes ?? 60 })
     setShowForm(true)
     setError('')
     setSuccess('')
@@ -172,6 +173,22 @@ export default function ShiftsPage() {
             </div>
           </div>
 
+          <div>
+            <label className="label">เวลาพัก (นาที)</label>
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                className="input-field w-32"
+                value={form.break_minutes}
+                onChange={(e) => setForm({ ...form, break_minutes: Number(e.target.value) })}
+                min={0}
+                max={120}
+                step={5}
+              />
+              <span className="text-sm text-gray-500">นาที</span>
+            </div>
+          </div>
+
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-700">
             <p>เวลาเกินกว่า <strong>{form.regular_hours} ชั่วโมง</strong> จะนับเป็น OT โดยอัตโนมัติ</p>
           </div>
@@ -213,6 +230,7 @@ export default function ShiftsPage() {
                 <p className="text-sm text-gray-500">
                   {s.start_time} – {s.end_time}
                   <span className="ml-2 text-blue-600 font-medium">({s.regular_hours} ชม.)</span>
+                  <span className="ml-2 text-gray-400">พัก {s.break_minutes ?? 60} นาที</span>
                 </p>
               </div>
 

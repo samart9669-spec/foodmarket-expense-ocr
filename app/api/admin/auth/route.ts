@@ -1,26 +1,46 @@
+import { getRequestContext } from '@cloudflare/next-on-pages'
 import { NextRequest } from 'next/server'
-import { makeAdminToken, isAdminAuthorized } from '@/lib/admin-auth'
+import { loginUser, verifySession } from '@/lib/admin-auth'
 
 export const runtime = 'edge'
 
 export async function POST(request: NextRequest) {
   try {
-    const { password } = await request.json() as { password: string }
-    const token = makeAdminToken()
-    // Verify: re-encode password and compare
-    if (btoa(password) !== token) {
-      return Response.json({ error: 'รหัสผ่านไม่ถูกต้อง' }, { status: 401 })
+    const { username, password } = await request.json() as { username: string; password: string }
+    if (!username || !password) {
+      return Response.json({ error: 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน' }, { status: 400 })
     }
-    return Response.json({ token })
-  } catch {
-    return Response.json({ error: 'Invalid request' }, { status: 400 })
+    const { env } = getRequestContext()
+    const result = await loginUser(env.DB, username.trim(), password)
+    if (!result) return Response.json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' }, { status: 401 })
+    return Response.json({ token: result.token, role: result.role, display_name: result.display_name, username: username.trim() })
+  } catch (e) {
+    console.error('POST /api/admin/auth:', e)
+    return Response.json({ error: 'เกิดข้อผิดพลาด' }, { status: 500 })
   }
 }
 
-// Verify token (for client to check if token is still valid)
 export async function GET(request: NextRequest) {
-  if (!isAdminAuthorized(request)) {
-    return Response.json({ valid: false }, { status: 401 })
-  }
-  return Response.json({ valid: true })
+  try {
+    const auth = request.headers.get('Authorization')
+    if (!auth?.startsWith('Bearer ')) return Response.json({ valid: false }, { status: 401 })
+    const { env } = getRequestContext()
+    const user = await verifySession(env.DB, auth.slice(7))
+    if (!user) return Response.json({ valid: false }, { status: 401 })
+    return Response.json({ valid: true, ...user })
+  } catch { return Response.json({ valid: false }, { status: 401 }) }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const auth = request.headers.get('Authorization')
+    if (auth?.startsWith('Bearer ')) {
+      const token = auth.slice(7)
+      if (!token.startsWith('env:')) {
+        const { env } = getRequestContext()
+        await env.DB.prepare('DELETE FROM admin_sessions WHERE token = ?').bind(token).run()
+      }
+    }
+  } catch {}
+  return Response.json({ ok: true })
 }

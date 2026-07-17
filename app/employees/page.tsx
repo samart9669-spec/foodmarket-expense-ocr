@@ -3,15 +3,19 @@
 export const runtime = 'edge'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, getAdminRole, getAuthHeaders } from '@/lib/utils'
 import EmployeeTypeTag from '@/components/EmployeeTypeTag'
 
 interface Employee {
   id: string
   name: string
   employee_type: string
+  job_title: string | null
+  salary_type: string
   daily_rate: number
+  monthly_salary: number
   ot_rate: number
   commission_rate: number
   phone: string | null
@@ -23,20 +27,30 @@ interface Employee {
 }
 
 export default function EmployeesPage() {
+  const router = useRouter()
   const [employees, setEmployees] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<'all' | 'kitchen' | 'sales'>('all')
+  const [forbidden, setForbidden] = useState(false)
+  const [filter, setFilter] = useState<'all' | 'kitchen' | 'sales' | 'monthly'>('all')
   const [showInactive, setShowInactive] = useState(false)
   const [search, setSearch] = useState('')
   const [acting, setActing] = useState<string | null>(null)
 
-  useEffect(() => { fetchEmployees() }, [showInactive])
+  const role = typeof window !== 'undefined' ? getAdminRole() : ''
+  const canEdit = role === 'superadmin' || role === 'manager'
+
+  useEffect(() => {
+    const r = getAdminRole()
+    if (r === 'viewer' || r === 'admin') { setForbidden(true); setLoading(false); return }
+    fetchEmployees()
+  }, [showInactive])
 
   const fetchEmployees = async () => {
     setLoading(true)
     try {
       const url = showInactive ? '/api/employees?active=false' : '/api/employees'
-      const res = await fetch(url)
+      const res = await fetch(url, { headers: getAuthHeaders() })
+      if (res.status === 403) { setForbidden(true); return }
       const json = await res.json() as any
       setEmployees(json.employees || [])
     } catch (e) { console.error(e) }
@@ -47,7 +61,7 @@ export default function EmployeesPage() {
     if (!confirm(`ปิดการใช้งาน "${name}" ใช่หรือไม่?`)) return
     setActing(id)
     try {
-      await fetch(`/api/employees/${id}`, { method: 'DELETE' })
+      await fetch(`/api/employees/${id}`, { method: 'DELETE', headers: getAuthHeaders() })
       setEmployees(prev => prev.filter(e => e.id !== id))
     } catch { alert('เกิดข้อผิดพลาด') }
     finally { setActing(null) }
@@ -59,7 +73,7 @@ export default function EmployeesPage() {
     try {
       await fetch(`/api/employees/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({ is_active: 1 }),
       })
       setEmployees(prev => prev.filter(e => e.id !== id))
@@ -68,7 +82,8 @@ export default function EmployeesPage() {
   }
 
   const filtered = employees.filter(emp => {
-    const matchType = filter === 'all' || emp.employee_type === filter
+    const matchType = filter === 'all'
+      || (filter === 'monthly' ? emp.salary_type === 'monthly' : emp.employee_type === filter)
     const matchSearch = emp.name.toLowerCase().includes(search.toLowerCase())
     return matchType && matchSearch
   })
@@ -81,6 +96,21 @@ export default function EmployeesPage() {
     )
   }
 
+  if (forbidden) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4 text-center">
+        <svg className="w-16 h-16 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m0 0v2m0-2h2m-2 0H10m2-9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H5z" />
+        </svg>
+        <div>
+          <p className="text-lg font-semibold text-gray-700">ไม่มีสิทธิ์เข้าถึง</p>
+          <p className="text-sm text-gray-400 mt-1">บัญชีของคุณไม่มีสิทธิ์ดูข้อมูลพนักงาน</p>
+        </div>
+        <button onClick={() => router.push('/')} className="btn-secondary">กลับหน้าหลัก</button>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -88,12 +118,14 @@ export default function EmployeesPage() {
           <h1 className="text-2xl font-bold text-gray-900">พนักงานทั้งหมด</h1>
           <p className="text-gray-500 text-sm mt-1">{employees.length} คน</p>
         </div>
-        <Link href="/employees/new" className="btn-primary flex items-center gap-2">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          เพิ่มพนักงาน
-        </Link>
+        {canEdit && (
+          <Link href="/employees/new" className="btn-primary flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            เพิ่มพนักงาน
+          </Link>
+        )}
       </div>
 
       <div className="card">
@@ -103,12 +135,12 @@ export default function EmployeesPage() {
               onChange={e => setSearch(e.target.value)} className="input-field" />
           </div>
           <div className="flex gap-2 flex-wrap">
-            {(['all', 'kitchen', 'sales'] as const).map(f => (
+            {(['all', 'kitchen', 'sales', 'monthly'] as const).map(f => (
               <button key={f} onClick={() => setFilter(f)}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   filter === f ? 'bg-blue-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}>
-                {f === 'all' ? 'ทั้งหมด' : f === 'kitchen' ? 'ครัวกลาง' : 'พนักงานขาย'}
+                {f === 'all' ? 'ทั้งหมด' : f === 'kitchen' ? 'ครัวกลาง' : f === 'sales' ? 'พนักงานขาย' : 'รายเดือน'}
               </button>
             ))}
             <button onClick={() => setShowInactive(v => !v)}
@@ -167,8 +199,12 @@ export default function EmployeesPage() {
                       )}
                     </td>
                     <td className="table-cell font-medium text-gray-900">{emp.name}</td>
-                    <td className="table-cell"><EmployeeTypeTag type={emp.employee_type} /></td>
-                    <td className="table-cell">{formatCurrency(emp.daily_rate)}</td>
+                    <td className="table-cell"><EmployeeTypeTag type={emp.employee_type} jobTitle={emp.job_title || undefined} salaryType={emp.salary_type} /></td>
+                    <td className="table-cell">
+                      {emp.salary_type === 'monthly'
+                        ? <span className="text-purple-700 font-medium">{formatCurrency(emp.monthly_salary)}<span className="text-xs text-gray-400">/เดือน</span></span>
+                        : <span>{formatCurrency(emp.daily_rate)}<span className="text-xs text-gray-400">/วัน</span></span>}
+                    </td>
                     <td className="table-cell">{formatCurrency(emp.ot_rate)}</td>
                     <td className="table-cell">{emp.commission_rate || 0}%</td>
                     <td className="table-cell text-gray-500">{emp.phone || '-'}</td>
@@ -179,9 +215,11 @@ export default function EmployeesPage() {
                     </td>
                     <td className="table-cell">
                       <div className="flex items-center gap-2">
-                        <Link href={`/employees/${emp.id}`}
-                          className="text-blue-600 hover:text-blue-800 text-sm font-medium">แก้ไข</Link>
-                        {showInactive ? (
+                        {canEdit && (
+                          <Link href={`/employees/${emp.id}`}
+                            className="text-blue-600 hover:text-blue-800 text-sm font-medium">แก้ไข</Link>
+                        )}
+                        {canEdit && (showInactive ? (
                           <button onClick={() => handleActivate(emp.id, emp.name)}
                             disabled={acting === emp.id}
                             className="text-green-600 hover:text-green-800 text-sm font-medium disabled:opacity-50">
@@ -193,7 +231,7 @@ export default function EmployeesPage() {
                             className="text-red-500 hover:text-red-700 text-sm font-medium disabled:opacity-50">
                             {acting === emp.id ? '...' : 'ปิดใช้งาน'}
                           </button>
-                        )}
+                        ))}
                       </div>
                     </td>
                   </tr>

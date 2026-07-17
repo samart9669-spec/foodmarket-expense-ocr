@@ -4,6 +4,7 @@ export const runtime = 'edge'
 
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { getAdminRole, getAuthHeaders } from '@/lib/utils'
 
 interface SalesPoint { id: string; name: string }
 
@@ -27,11 +28,16 @@ export default function NewEmployeePage() {
   const router = useRouter()
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const role = typeof window !== 'undefined' ? getAdminRole() : ''
 
   const [form, setForm] = useState({
-    name: '', employee_type: 'kitchen', sales_point_id: '',
-    daily_rate: 350, ot_rate: 50, commission_rate: 0, phone: '',
+    name: '', job_title: 'kitchen', employee_type: 'kitchen', salary_type: 'daily',
+    sales_point_id: '', daily_rate: 350, monthly_salary: 15000, ot_rate: 50,
+    commission_rate: 0, phone: '',
+    work_start: '08:00', work_end: '18:00', work_days: [1, 2, 3, 4, 5] as number[],
   })
+  const [positionPreset, setPositionPreset] = useState('kitchen')
+  const [jobTitleCustom, setJobTitleCustom] = useState('')
   const [salesPoints, setSalesPoints] = useState<SalesPoint[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -43,6 +49,8 @@ export default function NewEmployeePage() {
   const [qrCode, setQrCode] = useState('')
 
   useEffect(() => {
+    const r = getAdminRole()
+    if (!r || r === 'viewer' || r === 'admin') { router.replace('/employees'); return }
     fetch('/api/sales-points').then(r => r.json()).then((d: any) => setSalesPoints(d.salesPoints || []))
   }, [])
 
@@ -105,6 +113,33 @@ export default function NewEmployeePage() {
     setPhotoDataUrl(null)
   }
 
+  const isOfficePosition = positionPreset === 'head_office' || positionPreset === 'other'
+
+  const handlePositionChange = (preset: string) => {
+    setPositionPreset(preset)
+    if (preset !== 'other') {
+      const employeeType = preset === 'sales' ? 'sales' : 'kitchen'
+      setForm(f => ({
+        ...f,
+        job_title: preset,
+        employee_type: employeeType,
+        // Head office staff default to monthly salary with fixed 08:00-18:00 Mon-Fri hours
+        ...(preset === 'head_office' ? { salary_type: 'monthly' } : {}),
+      }))
+    } else {
+      setForm(f => ({ ...f, job_title: '', employee_type: 'kitchen', salary_type: 'monthly' }))
+    }
+  }
+
+  const toggleWorkDay = (day: number) => {
+    setForm(f => ({
+      ...f,
+      work_days: f.work_days.includes(day)
+        ? f.work_days.filter(d => d !== day)
+        : [...f.work_days, day].sort(),
+    }))
+  }
+
   // ── Submit ────────────────────────────────────────────────────────
   const generateQR = () => setQrCode(`EMP-${Date.now().toString(36).toUpperCase()}`)
 
@@ -113,14 +148,21 @@ export default function NewEmployeePage() {
     if (!form.name.trim()) { setError('กรุณากรอกชื่อพนักงาน'); return }
     setLoading(true); setError('')
     try {
+      const actualJobTitle = positionPreset === 'other' ? jobTitleCustom.trim() : form.job_title
       const res = await fetch('/api/employees', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
           ...form,
+          job_title: actualJobTitle,
           face_photo: photoDataUrl || undefined,
           qr_code: qrCode || undefined,
           sales_point_id: form.employee_type === 'sales' ? form.sales_point_id : undefined,
+          monthly_salary: form.salary_type === 'monthly' ? form.monthly_salary : 0,
+          daily_rate: form.salary_type === 'monthly' ? 0 : form.daily_rate,
+          work_start: isOfficePosition ? form.work_start : undefined,
+          work_end: isOfficePosition ? form.work_end : undefined,
+          work_days: isOfficePosition ? form.work_days.join(',') : undefined,
         }),
       })
       const data = await res.json() as any
@@ -132,9 +174,16 @@ export default function NewEmployeePage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">เพิ่มพนักงานใหม่</h1>
-        <p className="text-gray-500 text-sm mt-1">กรอกข้อมูลพนักงานให้ครบถ้วน</p>
+      <div className="flex items-center gap-3">
+        <button onClick={() => router.push('/employees')} className="text-gray-400 hover:text-gray-600 transition-colors group">
+          <svg className="w-5 h-5 group-hover:-translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">เพิ่มพนักงานใหม่</h1>
+          <p className="text-gray-500 text-sm mt-0.5">กรอกข้อมูลพนักงานให้ครบถ้วน</p>
+        </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -147,14 +196,41 @@ export default function NewEmployeePage() {
               onChange={e => setForm({ ...form, name: e.target.value })} placeholder="เช่น สมชาย ใจดี" required />
           </div>
           <div>
-            <label className="label">ประเภทพนักงาน *</label>
-            <select className="input-field" value={form.employee_type}
-              onChange={e => setForm({ ...form, employee_type: e.target.value })}>
+            <label className="label">ตำแหน่งงาน *</label>
+            <select className="input-field" value={positionPreset} onChange={e => handlePositionChange(e.target.value)}>
               <option value="kitchen">ครัวกลาง</option>
               <option value="sales">พนักงานขายหน้าร้าน</option>
+              {role === 'superadmin' && <option value="head_office">Head Office</option>}
+              {role === 'superadmin' && <option value="other">อื่นๆ ระบุเอง</option>}
             </select>
+            {positionPreset === 'other' && (
+              <input
+                type="text"
+                className="input-field mt-2"
+                placeholder="ระบุตำแหน่งงาน เช่น ผู้จัดการ, บัญชี..."
+                value={jobTitleCustom}
+                onChange={e => setJobTitleCustom(e.target.value)}
+                required
+              />
+            )}
           </div>
-          {form.employee_type === 'sales' && (
+          <div>
+            <label className="label">ประเภทรายได้ *</label>
+            <div className="grid grid-cols-2 gap-3">
+              {(['daily', 'monthly'] as const).map(st => (
+                <label key={st}
+                  className={`flex items-center gap-3 border-2 rounded-xl p-3 cursor-pointer transition-colors ${form.salary_type === st ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                  <input type="radio" name="salary_type" value={st} checked={form.salary_type === st}
+                    onChange={() => setForm({ ...form, salary_type: st })} className="accent-blue-600" />
+                  <div>
+                    <p className="font-medium text-sm">{st === 'daily' ? 'รายวัน' : 'รายเดือน'}</p>
+                    <p className="text-xs text-gray-400">{st === 'daily' ? 'คิดตามวันที่มาทำงาน' : 'เงินเดือนคงที่ต่อเดือน'}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+          {positionPreset === 'sales' && (
             <div>
               <label className="label">จุดขายประจำ</label>
               <select className="input-field" value={form.sales_point_id}
@@ -162,6 +238,37 @@ export default function NewEmployeePage() {
                 <option value="">-- เลือกจุดขาย --</option>
                 {salesPoints.map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
               </select>
+            </div>
+          )}
+          {isOfficePosition && (
+            <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 space-y-3">
+              <p className="text-sm font-medium text-purple-800">เวลาทำงาน (สังกัดสำนักงานใหญ่ — ไม่มีกะ)</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="label">เวลาเข้างาน</label>
+                  <input type="time" className="input-field" value={form.work_start}
+                    onChange={e => setForm({ ...form, work_start: e.target.value })} />
+                </div>
+                <div>
+                  <label className="label">เวลาเลิกงาน</label>
+                  <input type="time" className="input-field" value={form.work_end}
+                    onChange={e => setForm({ ...form, work_end: e.target.value })} />
+                </div>
+              </div>
+              <div>
+                <label className="label">วันทำงาน</label>
+                <div className="flex flex-wrap gap-2">
+                  {[{ d: 1, l: 'จ' }, { d: 2, l: 'อ' }, { d: 3, l: 'พ' }, { d: 4, l: 'พฤ' }, { d: 5, l: 'ศ' }, { d: 6, l: 'ส' }, { d: 0, l: 'อา' }].map(({ d, l }) => (
+                    <button key={d} type="button" onClick={() => toggleWorkDay(d)}
+                      className={`w-11 h-11 rounded-lg text-sm font-medium transition-colors ${
+                        form.work_days.includes(d) ? 'bg-purple-600 text-white' : 'bg-white border border-gray-300 text-gray-500 hover:border-purple-400'
+                      }`}>
+                      {l}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 mt-1.5">ค่าเริ่มต้น: จันทร์-ศุกร์ 08:00-18:00 · มาสายเมื่อเข้างานเกิน 15 นาที · ตรวจ GPS กับสำนักงานใหญ่</p>
+              </div>
             </div>
           )}
           <div>
@@ -174,26 +281,49 @@ export default function NewEmployeePage() {
         {/* Salary */}
         <div className="card space-y-4">
           <h2 className="font-semibold text-gray-900 pb-2 border-b">โครงสร้างรายได้</h2>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="label">ค่าแรงรายวัน (฿)</label>
-              <input type="number" className="input-field" value={form.daily_rate}
-                onChange={e => setForm({ ...form, daily_rate: Number(e.target.value) })} min={0} step={50} />
-            </div>
-            <div>
-              <label className="label">ค่า OT/ชั่วโมง (฿)</label>
-              <input type="number" className="input-field" value={form.ot_rate}
-                onChange={e => setForm({ ...form, ot_rate: Number(e.target.value) })} min={0} step={10} />
-            </div>
-            <div>
-              <label className="label">ค่าคอมมิชชั่น (%)</label>
-              <input type="number" className="input-field" value={form.commission_rate}
-                onChange={e => setForm({ ...form, commission_rate: Number(e.target.value) })} min={0} max={100} step={0.5} />
-            </div>
-          </div>
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-700">
-            รายได้ = ค่าแรงรายวัน + (OT × ชั่วโมง OT) + (ยอดขาย × {form.commission_rate}%)
-          </div>
+
+          {form.salary_type === 'monthly' ? (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="label">เงินเดือน/เดือน (฿)</label>
+                  <input type="number" className="input-field" value={form.monthly_salary}
+                    onChange={e => setForm({ ...form, monthly_salary: Number(e.target.value) })} min={0} step={1} />
+                </div>
+                <div>
+                  <label className="label">ค่า OT/ชั่วโมง (฿)</label>
+                  <input type="number" className="input-field" value={form.ot_rate}
+                    onChange={e => setForm({ ...form, ot_rate: Number(e.target.value) })} min={0} step={10} />
+                </div>
+              </div>
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 text-sm text-purple-700">
+                รายได้ = เงินเดือน {form.monthly_salary.toLocaleString()} ฿/เดือน + (OT × ชั่วโมง OT)
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="label">ค่าแรงรายวัน (฿)</label>
+                  <input type="number" className="input-field" value={form.daily_rate}
+                    onChange={e => setForm({ ...form, daily_rate: Number(e.target.value) })} min={0} step={1} />
+                </div>
+                <div>
+                  <label className="label">ค่า OT/ชั่วโมง (฿)</label>
+                  <input type="number" className="input-field" value={form.ot_rate}
+                    onChange={e => setForm({ ...form, ot_rate: Number(e.target.value) })} min={0} step={10} />
+                </div>
+                <div>
+                  <label className="label">ค่าคอมมิชชั่น (%)</label>
+                  <input type="number" className="input-field" value={form.commission_rate}
+                    onChange={e => setForm({ ...form, commission_rate: Number(e.target.value) })} min={0} max={100} step={0.5} />
+                </div>
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-700">
+                รายได้ = ค่าแรงรายวัน + (OT × ชั่วโมง OT) + (ยอดขาย × {form.commission_rate}%)
+              </div>
+            </>
+          )}
         </div>
 
         {/* Photo / Face */}

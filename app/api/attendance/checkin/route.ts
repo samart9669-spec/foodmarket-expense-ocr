@@ -1,18 +1,11 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
-import { generateId, getTodayString } from '@/lib/utils'
+import { generateId, getTodayString, getBangkokDateTimeString, getBangkokMinutesOfDay } from '@/lib/utils'
+import { getGeoTarget, validateGeoPosition } from '@/lib/geo'
+import { isOfficeEmployee } from '@/lib/auth-server'
+import { ensureAttendanceApprovedColumn, ensureAttendanceStatusColumns, getApprovedOffsite } from '@/lib/db-tables'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
-
-function getDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371000
-  const φ1 = lat1 * Math.PI / 180
-  const φ2 = lat2 * Math.PI / 180
-  const Δφ = (lat2 - lat1) * Math.PI / 180
-  const Δλ = (lon2 - lon1) * Math.PI / 180
-  const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -36,58 +29,71 @@ export async function POST(request: NextRequest) {
       .bind(employee_id).first() as any
     if (!employee) return Response.json({ error: 'ไม่พบข้อมูลพนักงาน' }, { status: 404 })
 
-    // GPS branch validation (only if branch has GPS configured and client sends coordinates)
-    if (sales_point_id && latitude != null && longitude != null) {
-      const branch = await db.prepare('SELECT * FROM sales_points WHERE id = ?')
-        .bind(sales_point_id).first() as any
-      if (branch?.latitude != null && branch?.longitude != null) {
-        const dist = getDistanceMeters(latitude, longitude, branch.latitude, branch.longitude)
-        const radius = branch.radius_meters ?? 200
-        if (dist > radius) {
-          return Response.json({
-            error: `อยู่ห่างจากสาขา ${Math.round(dist)} เมตร (ต้องอยู่ภายใน ${radius} เมตร)`,
-            distance: Math.round(dist),
-            required: radius,
-          }, { status: 422 })
-        }
-      }
-    }
-
     const today = getTodayString()
-    const now = new Date()
-    const checkInTime = `${today} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+
+    // Approved offsite-work request for today overrides the normal location:
+    // check-in is validated against the attached offsite coordinates instead.
+    const offsite = await getApprovedOffsite(db, employee_id, today)
+
+    // GPS validation — offsite location when approved; otherwise the selected
+    // branch, falling back to the employee's primary branch, then head office.
+    // Skipped only when the resolved place has no GPS configured.
+    const geoTarget = offsite
+      ? {
+          label: `จุดปฏิบัติงานนอกสถานที่ (${offsite.location_name})`,
+          latitude: offsite.latitude,
+          longitude: offsite.longitude,
+          radius: offsite.radius_meters || 300,
+        }
+      : await getGeoTarget(db, sales_point_id || employee.sales_point_id || null)
+    const geoError = validateGeoPosition(geoTarget, latitude, longitude)
+    if (geoError) return Response.json(geoError, { status: 422 })
+    const checkInTime = getBangkokDateTimeString()
+    const nowMinutes = getBangkokMinutesOfDay()
 
     const existing = await db.prepare('SELECT * FROM attendance WHERE employee_id = ? AND date = ?')
       .bind(employee_id, today).first() as any
+
+    // Head office staff skip the daily time-approval step — record as approved
+    const autoApprove = isOfficeEmployee(employee.job_title) ? 1 : 0
+    if (autoApprove) await ensureAttendanceApprovedColumn(db)
+    await ensureAttendanceStatusColumns(db)
 
     if (existing) {
       if (existing.check_in) {
         return Response.json({ error: 'เช็คอินไปแล้ววันนี้', check_in: existing.check_in }, { status: 409 })
       }
-      await db.prepare('UPDATE attendance SET check_in=?, check_in_method=?, check_in_lat=?, check_in_lng=? WHERE id=?')
-        .bind(checkInTime, method, latitude ?? null, longitude ?? null, existing.id).run()
+      await db.prepare('UPDATE attendance SET check_in=?, check_in_method=?, check_in_lat=?, check_in_lng=?, approved=MAX(COALESCE(approved,0), ?), offsite_request_id=COALESCE(?, offsite_request_id) WHERE id=?')
+        .bind(checkInTime, method, latitude ?? null, longitude ?? null, autoApprove, offsite?.id ?? null, existing.id).run()
     } else {
       let status = 'present'
       if (shift_id) {
         const shift = await db.prepare('SELECT * FROM shifts WHERE id = ?').bind(shift_id).first() as any
         if (shift) {
           const [h, m] = shift.start_time.split(':').map(Number)
-          if (now.getHours() * 60 + now.getMinutes() > h * 60 + m + 15) status = 'late'
+          if (nowMinutes > h * 60 + m + 15) status = 'late'
         }
+      } else if (employee.work_start) {
+        // No shift — fixed personal schedule (e.g. head office 08:00-18:00), 15-min grace
+        const [h, m] = String(employee.work_start).split(':').map(Number)
+        if (!Number.isNaN(h) && nowMinutes > h * 60 + (m || 0) + 15) status = 'late'
       }
       const id = generateId()
       await db.prepare(`
-        INSERT INTO attendance (id, employee_id, date, shift_id, check_in, check_in_method, sales_point_id, status, check_in_lat, check_in_lng)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(id, employee_id, today, shift_id || null, checkInTime, method, sales_point_id || null, status, latitude ?? null, longitude ?? null).run()
+        INSERT INTO attendance (id, employee_id, date, shift_id, check_in, check_in_method, sales_point_id, status, check_in_lat, check_in_lng, approved, offsite_request_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(id, employee_id, today, shift_id || null, checkInTime, method, sales_point_id || null, status, latitude ?? null, longitude ?? null, autoApprove, offsite?.id ?? null).run()
     }
 
     return Response.json({
       success: true,
-      message: `เช็คอินสำเร็จ: ${employee.name}`,
+      message: offsite
+        ? `เช็คอินสำเร็จ (นอกสถานที่: ${offsite.location_name}): ${employee.name}`
+        : `เช็คอินสำเร็จ: ${employee.name}`,
       employee_name: employee.name,
       employee_type: employee.employee_type,
       check_in: checkInTime,
+      offsite: offsite ? { location_name: offsite.location_name } : null,
     })
   } catch (error) {
     console.error('POST /api/attendance/checkin error:', error)
