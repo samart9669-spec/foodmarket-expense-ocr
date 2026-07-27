@@ -35,22 +35,17 @@ function saveAuth(a: AuthState) { sessionStorage.setItem('adminAuth', JSON.strin
 function clearAuth() { sessionStorage.removeItem('adminAuth') }
 function authHeaders(token: string) { return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } }
 
-// ── Time conversion helpers ───────────────────────────────────────
-function utcToThaiHHMM(utcStr: string | null): string {
-  if (!utcStr) return ''
-  const iso = utcStr.includes('T') ? utcStr : utcStr.replace(' ', 'T') + 'Z'
-  const d = new Date(iso)
-  const hNum = d.getUTCHours() + 7
-  const m = String(d.getUTCMinutes()).padStart(2, '0')
-  return `${String(hNum % 24).padStart(2, '0')}:${m}`
+// ── Time helpers ──────────────────────────────────────────────────
+// Attendance timestamps are stored as Bangkok wall-clock strings — no conversion
+function storedToHHMM(str: string | null): string {
+  if (!str) return ''
+  const m = str.match(/(\d{2}):(\d{2})/)
+  return m ? `${m[1]}:${m[2]}` : ''
 }
 
-function thaiHHMMToUtc(date: string, hhMM: string): string {
-  const [hh, mm] = hhMM.split(':').map(Number)
-  const utcHour = hh - 7
-  const d = new Date(`${date}T00:00:00Z`)
-  d.setUTCHours(utcHour, mm, 0, 0)
-  return d.toISOString().replace('T', ' ').substring(0, 19)
+function hhmmToStored(date: string, hhMM: string): string {
+  if (!hhMM) return ''
+  return `${date} ${hhMM}:00`
 }
 
 // ── Role labels & colors ──────────────────────────────────────────
@@ -572,8 +567,8 @@ export default function AdminManagePage() {
       const init: Record<string, { check_in: string; check_out: string }> = {}
       list.forEach(r => {
         init[r.id] = {
-          check_in: utcToThaiHHMM(r.check_in),
-          check_out: utcToThaiHHMM(r.check_out),
+          check_in: storedToHHMM(r.check_in),
+          check_out: storedToHHMM(r.check_out),
         }
       })
       setEditing(init)
@@ -608,8 +603,8 @@ export default function AdminManagePage() {
     setSavingAtt(record.id)
     try {
       const body: any = {}
-      if (edit.check_in) body.check_in = thaiHHMMToUtc(record.date, edit.check_in)
-      if (edit.check_out) body.check_out = thaiHHMMToUtc(record.date, edit.check_out)
+      if (edit.check_in) body.check_in = hhmmToStored(record.date, edit.check_in)
+      if (edit.check_out) body.check_out = hhmmToStored(record.date, edit.check_out)
 
       const res = await fetch(`/api/admin/attendance/${record.id}`, {
         method: 'PATCH',
