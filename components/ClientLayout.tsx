@@ -18,6 +18,7 @@ const PAGE_LABELS: Record<string, string> = {
   '/admin/leave': 'อนุมัติใบลา',
   '/admin/offsite': 'อนุมัติงานนอกสถานที่',
   '/admin/manage': 'จัดการระบบ',
+  '/admin/fix-time': 'แก้เวลาย้อนหลัง',
   '/branches': 'จัดการสาขา',
   '/reports/attendance': 'สถิติขาด ลา มาสาย',
   '/reports/attendance/detail': 'รายละเอียดรายบุคคล',
