@@ -1,4 +1,5 @@
 import { getBangkokDateTimeString, getTodayString, getCurrentTimeString } from '@/lib/utils'
+import { APP_VERSION, BUILD_TIME, formatBuildTime } from '@/lib/version'
 
 export const runtime = 'edge'
 
@@ -9,6 +10,9 @@ export async function GET() {
   const utc = new Date().toISOString().replace('T', ' ').slice(0, 19)
   return Response.json({
     ok: true,
+    version: APP_VERSION,
+    build_time_utc: BUILD_TIME,
+    build_time_bangkok: formatBuildTime(),
     features: ['bangkok-time', 'offsite-requests', 'head-office-schedule', 'attendance-reports'],
     server_utc_time: utc,
     bangkok_time: getBangkokDateTimeString(),

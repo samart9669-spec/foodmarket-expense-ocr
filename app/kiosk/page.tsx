@@ -5,6 +5,7 @@ export const runtime = 'edge'
 import { useState, useEffect, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import { useGeolocation } from '@/lib/useGeolocation'
+import { APP_VERSION, formatBuildTime } from '@/lib/version'
 
 const FaceScanner = dynamic(() => import('@/components/FaceScanner'), { ssr: false })
 const QRScanner = dynamic(() => import('@/components/QRScanner'), { ssr: false })
@@ -112,6 +113,7 @@ export default function KioskPage() {
             {gpsStatus === 'ok' ? 'พบตำแหน่ง GPS' : gpsStatus === 'loading' ? 'กำลังค้นหาตำแหน่ง...' : 'ไม่ได้อนุญาตตำแหน่ง GPS'}
           </span>
         </div>
+        <p className="text-[11px] text-gray-600 font-mono mt-1">v{APP_VERSION} · อัปเดต {formatBuildTime()}</p>
       </div>
 
       {/* Check-in / Check-out toggle */}
