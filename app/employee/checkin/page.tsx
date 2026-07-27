@@ -49,7 +49,7 @@ export default function EmployeeCheckinPage() {
   const [gpsState, setGpsState] = useState<GpsState>('idle')
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null)
   const [gpsDistance, setGpsDistance] = useState<number | null>(null)
-  const [result, setResult] = useState<{ success: boolean; message: string; name?: string; recorded?: { date: string; time: string }; hours?: number } | null>(null)
+  const [result, setResult] = useState<{ success: boolean; message: string; name?: string; recorded?: { date: string; time: string }; hours?: number; serverVersion?: string; serverUtc?: string } | null>(null)
   const [loading, setLoading] = useState(false)
   const posRef = useRef<{ lat: number; lng: number } | null>(null)
 
@@ -125,6 +125,8 @@ export default function EmployeeCheckinPage() {
         name: data.employee_name || employeeName,
         recorded: res.ok ? thaiDateTime(utcTime) ?? undefined : undefined,
         hours: res.ok && scanMode === 'checkout' ? data.total_hours : undefined,
+        serverVersion: data.server_version,
+        serverUtc: data.server_utc,
       })
     } catch {
       setResult({ success: false, message: 'เกิดข้อผิดพลาดในการเชื่อมต่อ' })
@@ -275,6 +277,11 @@ export default function EmployeeCheckinPage() {
                 <p className="text-sm text-gray-300 mt-0.5">{result.recorded.date}</p>
                 {result.hours != null && (
                   <p className="text-sm text-green-300 mt-1">รวม {result.hours.toFixed(1)} ชั่วโมง</p>
+                )}
+                {result.serverVersion && (
+                  <p className="text-[11px] text-gray-500 mt-2 font-mono">
+                    เซิร์ฟเวอร์ v{result.serverVersion} · GMT {result.serverUtc}
+                  </p>
                 )}
               </div>
             )}

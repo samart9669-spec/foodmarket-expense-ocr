@@ -3,6 +3,7 @@ import { generateId, getTodayString, getBangkokDateTimeString, getBangkokMinutes
 import { getGeoTarget, validateGeoPosition } from '@/lib/geo'
 import { isOfficeEmployee } from '@/lib/auth-server'
 import { ensureAttendanceApprovedColumn, ensureAttendanceStatusColumns, getApprovedOffsite } from '@/lib/db-tables'
+import { APP_VERSION } from '@/lib/version'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -94,6 +95,9 @@ export async function POST(request: NextRequest) {
       employee_type: employee.employee_type,
       check_in: checkInTime,
       offsite: offsite ? { location_name: offsite.location_name } : null,
+      // Diagnostics shown on the scan screen so a stale deployment is obvious
+      server_version: APP_VERSION,
+      server_utc: new Date().toISOString().slice(11, 19),
     })
   } catch (error) {
     console.error('POST /api/attendance/checkin error:', error)
