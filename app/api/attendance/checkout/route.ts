@@ -3,6 +3,7 @@ import { getTodayString, calculateHoursWorked, calculateOTHours, getBangkokDateT
 import { getGeoTarget, validateGeoPosition } from '@/lib/geo'
 import { isOfficeEmployee } from '@/lib/auth-server'
 import { ensureAttendanceApprovedColumn, ensureAttendanceStatusColumns, getApprovedOffsite } from '@/lib/db-tables'
+import { APP_VERSION } from '@/lib/version'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -130,6 +131,9 @@ export async function POST(request: NextRequest) {
       employee_name: employee.name,
       employee_type: employee.employee_type,
       check_out: checkOutTime,
+      // Diagnostics shown on the scan screen so a stale deployment is obvious
+      server_version: APP_VERSION,
+      server_utc: new Date().toISOString().slice(11, 19),
       total_hours: Math.round(totalHours * 100) / 100,
       regular_hours: Math.round(regularHours * 100) / 100,
       ot_hours: Math.round(otHours * 100) / 100,

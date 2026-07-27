@@ -33,6 +33,8 @@ interface ScanResult {
   check_out?: string
   action?: 'checkin' | 'checkout'
   total_hours?: number
+  server_version?: string
+  server_utc?: string
 }
 
 // Stored values are already Bangkok wall-clock — display as-is, no conversion
@@ -96,6 +98,8 @@ export default function AttendanceScanPage() {
             check_out: data.check_out,
             total_hours: data.total_hours,
             action: scanMode,
+            server_version: data.server_version,
+            server_utc: data.server_utc,
           })
         } else {
           setScanResult({ success: false, message: data.error || 'เกิดข้อผิดพลาด', employee_name: employeeName })
@@ -246,6 +250,11 @@ export default function AttendanceScanPage() {
                 <p className="text-sm text-gray-500 mt-0.5">{dt.date}</p>
                 {scanResult.total_hours != null && scanResult.action === 'checkout' && (
                   <p className="text-sm text-green-700 mt-1 font-medium">รวม {scanResult.total_hours.toFixed(1)} ชั่วโมง</p>
+                )}
+                {scanResult.server_version && (
+                  <p className="text-[11px] text-gray-400 mt-2 font-mono">
+                    เซิร์ฟเวอร์ v{scanResult.server_version} · GMT {scanResult.server_utc}
+                  </p>
                 )}
               </div>
             )
