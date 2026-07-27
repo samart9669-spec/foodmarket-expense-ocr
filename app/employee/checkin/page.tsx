@@ -5,6 +5,7 @@ export const runtime = 'edge'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
+import { APP_VERSION, formatBuildTime } from '@/lib/version'
 
 const FaceScanner = dynamic(() => import('@/components/FaceScanner'), { ssr: false })
 const QRScanner = dynamic(() => import('@/components/QRScanner'), { ssr: false })
@@ -151,7 +152,10 @@ export default function EmployeeCheckinPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </Link>
-        <h1 className="text-lg font-bold flex-1">ลงเวลาเข้า/ออกงาน</h1>
+        <div className="flex-1">
+          <h1 className="text-lg font-bold">ลงเวลาเข้า/ออกงาน</h1>
+          <p className="text-[11px] text-gray-600 font-mono">v{APP_VERSION} · อัปเดต {formatBuildTime()}</p>
+        </div>
       </div>
 
       <div className="flex-1 px-4 pb-8 space-y-4 max-w-lg mx-auto w-full">

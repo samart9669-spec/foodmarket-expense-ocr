@@ -4,6 +4,7 @@ export const runtime = 'edge'
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { APP_VERSION, formatBuildTime } from '@/lib/version'
 
 export default function EmployeeLandingPage() {
   const [time, setTime] = useState(new Date())
@@ -103,6 +104,9 @@ export default function EmployeeLandingPage() {
 
         <p className="text-center text-gray-600 text-xs pt-4">
           ระบบพนักงาน · Powerone Networking
+        </p>
+        <p className="text-center text-gray-700 text-[11px] font-mono">
+          v{APP_VERSION} · อัปเดต {formatBuildTime()}
         </p>
       </div>
     </div>

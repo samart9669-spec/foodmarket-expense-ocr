@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { APP_VERSION, formatBuildTime } from '@/lib/version'
 
 const navItems = [
   {
@@ -192,8 +193,10 @@ export default function Sidebar() {
           )
         })}
       </nav>
-      <div className="p-4 border-t border-gray-800">
+      <div className="p-4 border-t border-gray-800 space-y-1">
         <p className="text-xs text-gray-500 text-center">Powerone Networking &copy; 2024</p>
+        <p className="text-[11px] text-gray-600 text-center font-mono">v{APP_VERSION}</p>
+        <p className="text-[11px] text-gray-600 text-center">อัปเดต {formatBuildTime()}</p>
       </div>
     </aside>
   )

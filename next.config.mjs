@@ -3,6 +3,11 @@ const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: ['face-api.js'],
   },
+  env: {
+    // Stamped when the deployment is compiled — shown in the UI so the running
+    // build can be identified at a glance.
+    NEXT_PUBLIC_BUILD_TIME: new Date().toISOString(),
+  },
 }
 
 // Local dev only: expose Cloudflare bindings (D1) to `next dev`
