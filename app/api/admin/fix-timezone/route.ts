@@ -1,33 +1,23 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { isAdminAuthorized } from '@/lib/admin-auth'
+import { getTodayString } from '@/lib/utils'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
 
-// One-time repair for attendance rows written before check-in/out started
-// storing Bangkok wall-clock time. Those rows hold UTC, so they read 7 hours
-// early. Rows are marked with tz_fixed=1 so the shift can never be applied
-// twice, even if this endpoint is called repeatedly.
-async function ensureFixedColumn(db: any) {
-  try {
-    await db.prepare('ALTER TABLE attendance ADD COLUMN tz_fixed INTEGER DEFAULT 0').run()
-  } catch {
-    // duplicate column — already present
-  }
-  try {
-    await db.prepare('CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)').run()
-  } catch {}
-}
+// Per-record time correction. Records scanned while an old deployment was in
+// use hold UTC and read 7 hours early, but records from the current build are
+// already Bangkok time — so the shift must be applied one record at a time,
+// never in bulk.
 
-// Global one-shot guard: once the repair has run, rows recorded afterwards are
-// already Bangkok time, so the shift must never be applied again.
-async function fixAppliedAt(db: any): Promise<string | null> {
-  try {
-    const row = await db.prepare("SELECT value FROM app_settings WHERE key = 'tz_fix_applied_at'").first() as any
-    return row?.value ?? null
-  } catch {
-    return null
-  }
+// Thai shifts effectively never start between midnight and 05:00, so a
+// check-in in that window is almost certainly a UTC value.
+function isSuspicious(checkIn: string | null): boolean {
+  if (!checkIn) return false
+  const m = checkIn.match(/(\d{2}):(\d{2})/)
+  if (!m) return false
+  const hour = Number(m[1])
+  return hour < 5
 }
 
 export async function GET(request: NextRequest) {
@@ -36,27 +26,28 @@ export async function GET(request: NextRequest) {
     const db = env.DB
     const user = await isAdminAuthorized(request, db, 'admin')
     if (!user) return Response.json({ error: 'Forbidden' }, { status: 403 })
-    await ensureFixedColumn(db)
 
-    const appliedAt = await fixAppliedAt(db)
+    const { searchParams } = new URL(request.url)
+    const days = Math.min(Number(searchParams.get('days')) || 14, 90)
+    const today = getTodayString()
 
-    const pending = appliedAt ? { count: 0 } : await db.prepare(`
-      SELECT COUNT(*) AS count FROM attendance
-      WHERE COALESCE(tz_fixed, 0) = 0 AND check_in IS NOT NULL
-    `).first() as any
+    const rows = await db.prepare(`
+      SELECT a.id, a.date, a.check_in, a.check_out, a.early_out, e.name AS employee_name
+      FROM attendance a
+      LEFT JOIN employees e ON a.employee_id = e.id
+      WHERE a.check_in IS NOT NULL AND a.date >= date(?, '-' || ? || ' days')
+      ORDER BY a.date DESC, a.check_in ASC
+      LIMIT 200
+    `).bind(today, days).all()
 
-    const sample = await db.prepare(`
-      SELECT a.date, a.check_in, a.check_out, e.name AS employee_name,
-             COALESCE(a.tz_fixed, 0) AS tz_fixed
-      FROM attendance a LEFT JOIN employees e ON a.employee_id = e.id
-      WHERE a.check_in IS NOT NULL
-      ORDER BY a.date DESC, a.check_in DESC LIMIT 15
-    `).all()
+    const records = (rows.results || []).map((r: any) => ({
+      ...r,
+      suspicious: isSuspicious(r.check_in),
+    }))
 
     return Response.json({
-      pending_count: pending?.count ?? 0,
-      applied_at: appliedAt,
-      recent: sample.results,
+      records,
+      suspicious_count: records.filter((r: any) => r.suspicious).length,
     })
   } catch (error) {
     console.error('GET /api/admin/fix-timezone error:', error)
@@ -70,39 +61,26 @@ export async function POST(request: NextRequest) {
     const db = env.DB
     const user = await isAdminAuthorized(request, db, 'admin')
     if (!user) return Response.json({ error: 'Forbidden' }, { status: 403 })
-    await ensureFixedColumn(db)
 
-    const appliedAt = await fixAppliedAt(db)
-    if (appliedAt) {
-      return Response.json({
-        success: true,
-        fixed: 0,
-        already_applied: true,
-        applied_at: appliedAt,
-      })
-    }
+    const body = await request.json().catch(() => ({})) as { ids?: string[]; hours?: number }
+    const ids = Array.isArray(body.ids) ? body.ids.filter(Boolean) : []
+    const hours = Number(body.hours)
 
-    const before = await db.prepare(`
-      SELECT COUNT(*) AS count FROM attendance
-      WHERE COALESCE(tz_fixed, 0) = 0 AND check_in IS NOT NULL
-    `).first() as any
+    if (ids.length === 0) return Response.json({ error: 'ต้องระบุรายการที่จะแก้' }, { status: 400 })
+    if (![7, -7].includes(hours)) return Response.json({ error: 'hours ต้องเป็น 7 หรือ -7' }, { status: 400 })
 
-    await db.prepare(`
+    const shift = `${hours > 0 ? '+' : '-'}${Math.abs(hours)} hours`
+    const statements = ids.map(id => db.prepare(`
       UPDATE attendance
-      SET check_in  = datetime(check_in, '+7 hours'),
-          check_out = CASE WHEN check_out IS NOT NULL THEN datetime(check_out, '+7 hours') ELSE NULL END,
-          date      = date(datetime(check_in, '+7 hours')),
-          tz_fixed  = 1
-      WHERE COALESCE(tz_fixed, 0) = 0 AND check_in IS NOT NULL
-    `).run()
+      SET check_in  = datetime(check_in, ?),
+          check_out = CASE WHEN check_out IS NOT NULL THEN datetime(check_out, ?) ELSE NULL END,
+          date      = date(datetime(check_in, ?))
+      WHERE id = ? AND check_in IS NOT NULL
+    `).bind(shift, shift, shift, id))
 
-    // Record that the one-time repair has run — later scans already store
-    // Bangkok time and must never be shifted again.
-    await db.prepare(
-      "INSERT INTO app_settings (key, value) VALUES ('tz_fix_applied_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
-    ).bind(new Date().toISOString()).run()
+    await db.batch(statements)
 
-    return Response.json({ success: true, fixed: before?.count ?? 0 })
+    return Response.json({ success: true, updated: ids.length, hours })
   } catch (error) {
     console.error('POST /api/admin/fix-timezone error:', error)
     return Response.json({ error: String(error) }, { status: 500 })
