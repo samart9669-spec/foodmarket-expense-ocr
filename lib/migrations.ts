@@ -145,5 +145,10 @@ export async function runMigrations(db: any): Promise<string[]> {
   await run('ALTER TABLE employees ADD COLUMN work_end TEXT', 'employees.work_end')
   await run('ALTER TABLE employees ADD COLUMN work_days TEXT', 'employees.work_days')
 
+  // Audit trail for manually corrected payroll records
+  await run('ALTER TABLE payroll ADD COLUMN original_total_pay REAL', 'payroll.original_total_pay')
+  await run('ALTER TABLE payroll ADD COLUMN edited_at TEXT', 'payroll.edited_at')
+  await run('ALTER TABLE payroll ADD COLUMN edited_by TEXT', 'payroll.edited_by')
+
   return results
 }

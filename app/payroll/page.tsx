@@ -25,6 +25,27 @@ interface PayrollRecord {
   status: string
   notes: string | null
   created_at: string
+  original_total_pay: number | null
+  edited_at: string | null
+  edited_by: string | null
+}
+
+interface EditForm {
+  days_worked: number
+  day_rate_total: number
+  ot_hours_total: number
+  ot_total: number
+  sales_total: number
+  commission_total: number
+  bonus: number
+  deductions: number
+  total_pay: number
+  notes: string
+}
+
+/** รวมทั้งหมด = ค่าแรง + OT + คอมมิชชัน + โบนัส − รายการหัก */
+function sumTotal(f: { day_rate_total: number; ot_total: number; commission_total: number; bonus: number; deductions: number }): number {
+  return Math.round(((f.day_rate_total || 0) + (f.ot_total || 0) + (f.commission_total || 0) + (f.bonus || 0) - (f.deductions || 0)) * 100) / 100
 }
 
 interface Employee {
@@ -75,6 +96,77 @@ export default function PayrollPage() {
 
   const [calcResult, setCalcResult] = useState<CalcResult | null>(null)
   const [calcError, setCalcError] = useState('')
+  // Editable copy of the calculation, so a wrong figure can be corrected
+  // before the record is saved.
+  const [calcEdit, setCalcEdit] = useState<CalcResult['calculation'] | null>(null)
+  const [manualTotal, setManualTotal] = useState(false)
+
+  // Inline editing of an already saved payroll record
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState<EditForm | null>(null)
+  const [editManualTotal, setEditManualTotal] = useState(false)
+  const [savingEdit, setSavingEdit] = useState(false)
+
+  const patchCalc = (patch: Partial<CalcResult['calculation']>) => {
+    setCalcEdit(prev => {
+      if (!prev) return prev
+      const next = { ...prev, ...patch }
+      if (!manualTotal && patch.total_pay === undefined) next.total_pay = sumTotal(next)
+      return next
+    })
+  }
+
+  const patchEdit = (patch: Partial<EditForm>) => {
+    setEditForm(prev => {
+      if (!prev) return prev
+      const next = { ...prev, ...patch }
+      if (!editManualTotal && patch.total_pay === undefined) next.total_pay = sumTotal(next)
+      return next
+    })
+  }
+
+  const startEdit = (p: PayrollRecord) => {
+    setEditingId(p.id)
+    // A stored total that doesn't match the formula was set by hand — keep it
+    // that way instead of silently recalculating it.
+    setEditManualTotal(p.total_pay !== sumTotal(p))
+    setEditForm({
+      days_worked: p.days_worked,
+      day_rate_total: p.day_rate_total,
+      ot_hours_total: p.ot_hours_total,
+      ot_total: p.ot_total,
+      sales_total: p.sales_total,
+      commission_total: p.commission_total,
+      bonus: p.bonus,
+      deductions: p.deductions,
+      total_pay: p.total_pay,
+      notes: p.notes || '',
+    })
+  }
+
+  const saveEdit = async () => {
+    if (!editingId || !editForm) return
+    setSavingEdit(true)
+    try {
+      const res = await fetch('/api/payroll', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: editingId, ...editForm }),
+      })
+      if (res.ok) {
+        setEditingId(null)
+        setEditForm(null)
+        fetchPayroll()
+      } else {
+        const d = await res.json() as any
+        alert(d.error || 'บันทึกไม่สำเร็จ')
+      }
+    } catch {
+      alert('เชื่อมต่อไม่สำเร็จ')
+    } finally {
+      setSavingEdit(false)
+    }
+  }
 
   const fetchPayroll = useCallback(async () => {
     setLoading(true)
@@ -121,6 +213,8 @@ export default function PayrollPage() {
         return
       }
       setCalcResult(data)
+      setCalcEdit({ ...data.calculation })
+      setManualTotal(false)
     } catch {
       setCalcError('เกิดข้อผิดพลาดในการเชื่อมต่อ')
     } finally {
@@ -129,7 +223,7 @@ export default function PayrollPage() {
   }
 
   const handleSave = async () => {
-    if (!calcResult) return
+    if (!calcResult || !calcEdit) return
     setSaving(true)
     try {
       const res = await fetch('/api/payroll', {
@@ -139,11 +233,12 @@ export default function PayrollPage() {
           employee_id: calcResult.employee.id,
           period_start: periodStart,
           period_end: periodEnd,
-          ...calcResult.calculation,
+          ...calcEdit,
         }),
       })
       if (res.ok) {
         setCalcResult(null)
+        setCalcEdit(null)
         setSelectedEmployee('')
         setBonus(0)
         setDeductions(0)
@@ -303,7 +398,7 @@ export default function PayrollPage() {
           </div>
         )}
 
-        {calcResult && (
+        {calcResult && calcEdit && (
           <div className="mt-4 p-5 bg-blue-50 border border-blue-200 rounded-xl">
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -315,59 +410,82 @@ export default function PayrollPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-              <div className="bg-white rounded-lg p-3">
-                <p className="text-xs text-gray-500">วันทำงาน</p>
-                <p className="text-xl font-bold text-gray-900">{calcResult.calculation.days_worked} วัน</p>
-              </div>
-              <div className="bg-white rounded-lg p-3">
-                <p className="text-xs text-gray-500">OT</p>
-                <p className="text-xl font-bold text-orange-600">
-                  {calcResult.calculation.ot_hours_total.toFixed(1)} ชม.
-                </p>
-              </div>
-              <div className="bg-white rounded-lg p-3">
-                <p className="text-xs text-gray-500">ยอดขายรวม</p>
-                <p className="text-xl font-bold text-green-700">
-                  {formatCurrency(calcResult.calculation.sales_total)}
-                </p>
-              </div>
-              <div className="bg-white rounded-lg p-3">
-                <p className="text-xs text-gray-500">ค่าคอมมิชชัน</p>
-                <p className="text-xl font-bold text-purple-700">
-                  {formatCurrency(calcResult.calculation.commission_total)}
-                </p>
-              </div>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3 text-xs text-amber-800">
+              ทุกช่องแก้ไขได้ก่อนบันทึก — ถ้าระบบคำนวณพลาด พิมพ์ตัวเลขที่ถูกต้องทับได้เลย
             </div>
 
-            <div className="bg-white rounded-lg p-4 space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">ค่าแรงรายวัน ({calcResult.calculation.days_worked} วัน × {formatCurrency(calcResult.employee.daily_rate)})</span>
-                <span className="font-medium">{formatCurrency(calcResult.calculation.day_rate_total)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">ค่า OT ({calcResult.calculation.ot_hours_total.toFixed(1)} ชม. × {formatCurrency(calcResult.employee.ot_rate)})</span>
-                <span className="font-medium">{formatCurrency(calcResult.calculation.ot_total)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">ค่าคอมมิชชัน ({calcResult.employee.commission_rate}% ของ {formatCurrency(calcResult.calculation.sales_total)})</span>
-                <span className="font-medium">{formatCurrency(calcResult.calculation.commission_total)}</span>
-              </div>
-              {calcResult.calculation.bonus > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">โบนัส</span>
-                  <span className="font-medium text-green-600">+{formatCurrency(calcResult.calculation.bonus)}</span>
+            <div className="bg-white rounded-lg p-4 space-y-3">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div>
+                  <label className="label text-xs">วันทำงาน (วัน)</label>
+                  <input type="number" min={0} step={0.5} className="input-field"
+                    value={calcEdit.days_worked}
+                    onChange={e => patchCalc({ days_worked: Number(e.target.value) })} />
                 </div>
-              )}
-              {calcResult.calculation.deductions > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">รายการหัก</span>
-                  <span className="font-medium text-red-600">-{formatCurrency(calcResult.calculation.deductions)}</span>
+                <div>
+                  <label className="label text-xs">ค่าแรงรวม (฿)</label>
+                  <input type="number" min={0} step={1} className="input-field"
+                    value={calcEdit.day_rate_total}
+                    onChange={e => patchCalc({ day_rate_total: Number(e.target.value) })} />
                 </div>
-              )}
-              <div className="flex justify-between text-lg font-bold pt-2 border-t border-gray-200">
-                <span>รวมทั้งหมด</span>
-                <span className="text-blue-800">{formatCurrency(calcResult.calculation.total_pay)}</span>
+                <div>
+                  <label className="label text-xs">OT (ชม.)</label>
+                  <input type="number" min={0} step={0.5} className="input-field"
+                    value={calcEdit.ot_hours_total}
+                    onChange={e => patchCalc({ ot_hours_total: Number(e.target.value) })} />
+                </div>
+                <div>
+                  <label className="label text-xs">ค่า OT (฿)</label>
+                  <input type="number" min={0} step={1} className="input-field"
+                    value={calcEdit.ot_total}
+                    onChange={e => patchCalc({ ot_total: Number(e.target.value) })} />
+                </div>
+                <div>
+                  <label className="label text-xs">ยอดขายรวม (฿)</label>
+                  <input type="number" min={0} step={1} className="input-field"
+                    value={calcEdit.sales_total}
+                    onChange={e => patchCalc({ sales_total: Number(e.target.value) })} />
+                </div>
+                <div>
+                  <label className="label text-xs">ค่าคอมมิชชัน (฿)</label>
+                  <input type="number" min={0} step={1} className="input-field"
+                    value={calcEdit.commission_total}
+                    onChange={e => patchCalc({ commission_total: Number(e.target.value) })} />
+                </div>
+                <div>
+                  <label className="label text-xs">โบนัส (฿)</label>
+                  <input type="number" min={0} step={1} className="input-field"
+                    value={calcEdit.bonus}
+                    onChange={e => patchCalc({ bonus: Number(e.target.value) })} />
+                </div>
+                <div>
+                  <label className="label text-xs">รายการหัก (฿)</label>
+                  <input type="number" min={0} step={1} className="input-field"
+                    value={calcEdit.deductions}
+                    onChange={e => patchCalc({ deductions: Number(e.target.value) })} />
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-gray-200 flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <label className="label text-xs">รวมทั้งหมดที่จ่ายจริง (฿)</label>
+                  <input type="number" min={0} step={1}
+                    className={`input-field text-lg font-bold w-56 ${manualTotal ? 'border-amber-400 bg-amber-50' : ''}`}
+                    value={calcEdit.total_pay}
+                    onChange={e => { setManualTotal(true); setCalcEdit(prev => prev ? { ...prev, total_pay: Number(e.target.value) } : prev) }} />
+                  <p className="text-xs text-gray-500 mt-1">
+                    {manualTotal
+                      ? 'กำหนดยอดเอง — ไม่คิดตามสูตรแล้ว'
+                      : 'คิดจาก ค่าแรง + OT + คอม + โบนัส − หัก'}
+                  </p>
+                </div>
+                {manualTotal && (
+                  <button type="button"
+                    onClick={() => { setManualTotal(false); setCalcEdit(prev => prev ? { ...prev, total_pay: sumTotal(prev) } : prev) }}
+                    className="btn-secondary text-sm">
+                    คำนวณยอดใหม่จากสูตร
+                  </button>
+                )}
               </div>
             </div>
 
@@ -379,7 +497,7 @@ export default function PayrollPage() {
               >
                 {saving ? 'กำลังบันทึก...' : 'บันทึกข้อมูลเงินเดือน'}
               </button>
-              <button onClick={() => setCalcResult(null)} className="btn-secondary">
+              <button onClick={() => { setCalcResult(null); setCalcEdit(null) }} className="btn-secondary">
                 ยกเลิก
               </button>
             </div>
@@ -423,7 +541,100 @@ export default function PayrollPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {payrollList.map((p) => (
+                {payrollList.map((p) => editingId === p.id && editForm ? (
+                  <tr key={p.id} className="bg-amber-50">
+                    <td colSpan={12} className="px-4 py-4">
+                      <p className="font-semibold text-gray-900 mb-1">แก้ไขเงินเดือน — {p.employee_name}</p>
+                      <p className="text-xs text-gray-500 mb-3">งวด {p.period_start} ถึง {p.period_end}</p>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div>
+                          <label className="label text-xs">วันทำงาน</label>
+                          <input type="number" min={0} step={0.5} className="input-field"
+                            value={editForm.days_worked}
+                            onChange={e => patchEdit({ days_worked: Number(e.target.value) })} />
+                        </div>
+                        <div>
+                          <label className="label text-xs">ค่าแรงรวม (฿)</label>
+                          <input type="number" min={0} step={1} className="input-field"
+                            value={editForm.day_rate_total}
+                            onChange={e => patchEdit({ day_rate_total: Number(e.target.value) })} />
+                        </div>
+                        <div>
+                          <label className="label text-xs">OT (ชม.)</label>
+                          <input type="number" min={0} step={0.5} className="input-field"
+                            value={editForm.ot_hours_total}
+                            onChange={e => patchEdit({ ot_hours_total: Number(e.target.value) })} />
+                        </div>
+                        <div>
+                          <label className="label text-xs">ค่า OT (฿)</label>
+                          <input type="number" min={0} step={1} className="input-field"
+                            value={editForm.ot_total}
+                            onChange={e => patchEdit({ ot_total: Number(e.target.value) })} />
+                        </div>
+                        <div>
+                          <label className="label text-xs">ยอดขายรวม (฿)</label>
+                          <input type="number" min={0} step={1} className="input-field"
+                            value={editForm.sales_total}
+                            onChange={e => patchEdit({ sales_total: Number(e.target.value) })} />
+                        </div>
+                        <div>
+                          <label className="label text-xs">ค่าคอมมิชชัน (฿)</label>
+                          <input type="number" min={0} step={1} className="input-field"
+                            value={editForm.commission_total}
+                            onChange={e => patchEdit({ commission_total: Number(e.target.value) })} />
+                        </div>
+                        <div>
+                          <label className="label text-xs">โบนัส (฿)</label>
+                          <input type="number" min={0} step={1} className="input-field"
+                            value={editForm.bonus}
+                            onChange={e => patchEdit({ bonus: Number(e.target.value) })} />
+                        </div>
+                        <div>
+                          <label className="label text-xs">รายการหัก (฿)</label>
+                          <input type="number" min={0} step={1} className="input-field"
+                            value={editForm.deductions}
+                            onChange={e => patchEdit({ deductions: Number(e.target.value) })} />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 pt-3 border-t border-amber-200">
+                        <div>
+                          <label className="label text-xs">ยอดจ่ายจริง (฿)</label>
+                          <input type="number" min={0} step={1}
+                            className={`input-field text-lg font-bold ${editManualTotal ? 'border-amber-400 bg-white' : ''}`}
+                            value={editForm.total_pay}
+                            onChange={e => { setEditManualTotal(true); setEditForm(prev => prev ? { ...prev, total_pay: Number(e.target.value) } : prev) }} />
+                          <p className="text-xs text-gray-500 mt-1">
+                            {editManualTotal ? 'กำหนดยอดเอง' : 'คิดจากสูตรอัตโนมัติ'}
+                            {editManualTotal && (
+                              <button type="button"
+                                onClick={() => { setEditManualTotal(false); setEditForm(prev => prev ? { ...prev, total_pay: sumTotal(prev) } : prev) }}
+                                className="ml-2 text-blue-600 hover:text-blue-800 underline">
+                                คำนวณใหม่จากสูตร
+                              </button>
+                            )}
+                          </p>
+                        </div>
+                        <div>
+                          <label className="label text-xs">เหตุผลที่แก้ไข</label>
+                          <input type="text" className="input-field"
+                            placeholder="เช่น คำนวณ OT ผิด, ปรับยอดตามที่ตกลง..."
+                            value={editForm.notes}
+                            onChange={e => patchEdit({ notes: e.target.value })} />
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2 mt-4">
+                        <button onClick={saveEdit} disabled={savingEdit} className="btn-primary disabled:opacity-50">
+                          {savingEdit ? 'กำลังบันทึก...' : 'บันทึกการแก้ไข'}
+                        </button>
+                        <button onClick={() => { setEditingId(null); setEditForm(null) }} className="btn-secondary">
+                          ยกเลิก
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
                   <tr key={p.id} className="hover:bg-gray-50">
                     <td className="table-cell font-medium">{p.employee_name}</td>
                     <td className="table-cell">
@@ -452,10 +663,24 @@ export default function PayrollPage() {
                     </td>
                     <td className="table-cell font-bold text-blue-800">
                       {formatCurrency(p.total_pay)}
+                      {p.edited_at && (
+                        <span
+                          title={`แก้ไขเมื่อ ${p.edited_at}${p.original_total_pay != null ? ` · ยอดเดิม ${formatCurrency(p.original_total_pay)}` : ''}${p.notes ? ` · ${p.notes}` : ''}`}
+                          className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800 align-middle cursor-help"
+                        >
+                          แก้ไขแล้ว
+                        </span>
+                      )}
                     </td>
                     <td className="table-cell">{getStatusBadge(p.status)}</td>
                     <td className="table-cell">
-                      <div className="flex gap-1">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={() => startEdit(p)}
+                          className="text-xs text-amber-600 hover:text-amber-800 font-medium"
+                        >
+                          แก้ไข
+                        </button>
                         {p.status === 'pending' && (
                           <button
                             onClick={() => handleUpdateStatus(p.id, 'approved')}
@@ -471,9 +696,6 @@ export default function PayrollPage() {
                           >
                             จ่ายแล้ว
                           </button>
-                        )}
-                        {p.status === 'paid' && (
-                          <span className="text-xs text-gray-400">เสร็จสิ้น</span>
                         )}
                       </div>
                     </td>

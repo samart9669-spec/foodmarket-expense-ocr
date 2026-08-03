@@ -1,5 +1,5 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
-import { generateId } from '@/lib/utils'
+import { generateId, getBangkokDateTimeString } from '@/lib/utils'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -78,20 +78,71 @@ export async function PATCH(request: NextRequest) {
   try {
     const { env } = getRequestContext()
     const db = env.DB
-    const body = await request.json() as { id: string; status?: string; bonus?: number; deductions?: number; notes?: string }
-    const { id, status, bonus, deductions, notes } = body
+    const body = await request.json() as {
+      id: string; status?: string; notes?: string
+      days_worked?: number; day_rate_total?: number
+      ot_hours_total?: number; ot_total?: number
+      sales_total?: number; commission_total?: number
+      bonus?: number; deductions?: number; total_pay?: number
+      edited_by?: string
+    }
+    const {
+      id, status, notes, days_worked, day_rate_total, ot_hours_total, ot_total,
+      sales_total, commission_total, bonus, deductions, total_pay, edited_by,
+    } = body
 
     if (!id) return Response.json({ error: 'id is required' }, { status: 400 })
 
-    const existing = await db.prepare('SELECT id FROM payroll WHERE id = ?').bind(id).first()
+    const existing = await db.prepare('SELECT * FROM payroll WHERE id = ?').bind(id).first() as any
     if (!existing) return Response.json({ error: 'Payroll record not found' }, { status: 404 })
+
+    // Any change to the amounts is a correction — keep the first computed total
+    // and stamp who changed it so payroll stays auditable.
+    const isAmountEdit = [
+      days_worked, day_rate_total, ot_hours_total, ot_total,
+      sales_total, commission_total, bonus, deductions, total_pay,
+    ].some(v => v !== undefined)
+
+    try {
+      await db.prepare('ALTER TABLE payroll ADD COLUMN original_total_pay REAL').run()
+    } catch {}
+    try {
+      await db.prepare('ALTER TABLE payroll ADD COLUMN edited_at TEXT').run()
+    } catch {}
+    try {
+      await db.prepare('ALTER TABLE payroll ADD COLUMN edited_by TEXT').run()
+    } catch {}
+
+    const originalTotal = existing.original_total_pay ?? (isAmountEdit ? existing.total_pay : null)
+    const editedAt = isAmountEdit ? getBangkokDateTimeString() : (existing.edited_at ?? null)
+    const editedBy = isAmountEdit ? (edited_by || 'admin') : (existing.edited_by ?? null)
 
     await db.prepare(`
       UPDATE payroll SET
-        status = COALESCE(?, status), bonus = COALESCE(?, bonus),
-        deductions = COALESCE(?, deductions), notes = COALESCE(?, notes)
+        status = COALESCE(?, status),
+        notes = COALESCE(?, notes),
+        days_worked = COALESCE(?, days_worked),
+        day_rate_total = COALESCE(?, day_rate_total),
+        ot_hours_total = COALESCE(?, ot_hours_total),
+        ot_total = COALESCE(?, ot_total),
+        sales_total = COALESCE(?, sales_total),
+        commission_total = COALESCE(?, commission_total),
+        bonus = COALESCE(?, bonus),
+        deductions = COALESCE(?, deductions),
+        total_pay = COALESCE(?, total_pay),
+        original_total_pay = ?,
+        edited_at = ?,
+        edited_by = ?
       WHERE id = ?
-    `).bind(status ?? null, bonus ?? null, deductions ?? null, notes ?? null, id).run()
+    `).bind(
+      status ?? null, notes ?? null,
+      days_worked ?? null, day_rate_total ?? null,
+      ot_hours_total ?? null, ot_total ?? null,
+      sales_total ?? null, commission_total ?? null,
+      bonus ?? null, deductions ?? null, total_pay ?? null,
+      originalTotal, editedAt, editedBy,
+      id,
+    ).run()
 
     const updated = await db.prepare(`
       SELECT p.*, e.name as employee_name, e.employee_type
