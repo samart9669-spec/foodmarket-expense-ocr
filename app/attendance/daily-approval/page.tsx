@@ -389,19 +389,19 @@ export default function DailyApprovalPage() {
                         </select>
                       </td>
                       <td className="px-3 py-2">
-                        <input type="number" value={row.food_allowance} min={0} step={10}
+                        <input type="number" value={row.food_allowance} min={0} step="any"
                           onChange={e => update(realIdx, { food_allowance: Number(e.target.value) })}
                           className="w-full border border-gray-200 rounded-lg px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-400"
                         />
                       </td>
                       <td className="px-3 py-2">
-                        <input type="number" value={row.split_shift_allowance} min={0} step={10}
+                        <input type="number" value={row.split_shift_allowance} min={0} step="any"
                           onChange={e => update(realIdx, { split_shift_allowance: Number(e.target.value) })}
                           className="w-full border border-gray-200 rounded-lg px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-400"
                         />
                       </td>
                       <td className="px-3 py-2">
-                        <input type="number" value={row.cash_advance} min={0} step={50}
+                        <input type="number" value={row.cash_advance} min={0} step="any"
                           onChange={e => update(realIdx, { cash_advance: Number(e.target.value) })}
                           className="w-full border border-gray-200 rounded-lg px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-red-300"
                         />

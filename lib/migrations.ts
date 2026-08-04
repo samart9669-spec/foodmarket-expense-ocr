@@ -140,6 +140,10 @@ export async function runMigrations(db: any): Promise<string[]> {
   await run('ALTER TABLE employees ADD COLUMN monthly_salary REAL DEFAULT 0', 'employees.monthly_salary')
   await run("ALTER TABLE employees ADD COLUMN job_title TEXT DEFAULT ''", 'employees.job_title')
 
+  // Registered face photo — written by the employee form since the first
+  // version but never part of schema.sql
+  await run('ALTER TABLE employees ADD COLUMN face_photo TEXT', 'employees.face_photo')
+
   // Fixed work schedule for no-shift employees (head office 08:00-18:00 Mon-Fri)
   await run('ALTER TABLE employees ADD COLUMN work_start TEXT', 'employees.work_start')
   await run('ALTER TABLE employees ADD COLUMN work_end TEXT', 'employees.work_end')

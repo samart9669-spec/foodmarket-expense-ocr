@@ -376,7 +376,7 @@ export default function PayrollPage() {
               value={bonus}
               onChange={(e) => setBonus(Number(e.target.value))}
               min={0}
-              step={1}
+              step="any"
             />
           </div>
           <div>
@@ -387,7 +387,7 @@ export default function PayrollPage() {
               value={deductions}
               onChange={(e) => setDeductions(Number(e.target.value))}
               min={0}
-              step={1}
+              step="any"
             />
           </div>
         </div>
@@ -418,49 +418,49 @@ export default function PayrollPage() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div>
                   <label className="label text-xs">วันทำงาน (วัน)</label>
-                  <input type="number" min={0} step={0.5} className="input-field"
+                  <input type="number" min={0} step="any" className="input-field"
                     value={calcEdit.days_worked}
                     onChange={e => patchCalc({ days_worked: Number(e.target.value) })} />
                 </div>
                 <div>
                   <label className="label text-xs">ค่าแรงรวม (฿)</label>
-                  <input type="number" min={0} step={1} className="input-field"
+                  <input type="number" min={0} step="any" className="input-field"
                     value={calcEdit.day_rate_total}
                     onChange={e => patchCalc({ day_rate_total: Number(e.target.value) })} />
                 </div>
                 <div>
                   <label className="label text-xs">OT (ชม.)</label>
-                  <input type="number" min={0} step={0.5} className="input-field"
+                  <input type="number" min={0} step="any" className="input-field"
                     value={calcEdit.ot_hours_total}
                     onChange={e => patchCalc({ ot_hours_total: Number(e.target.value) })} />
                 </div>
                 <div>
                   <label className="label text-xs">ค่า OT (฿)</label>
-                  <input type="number" min={0} step={1} className="input-field"
+                  <input type="number" min={0} step="any" className="input-field"
                     value={calcEdit.ot_total}
                     onChange={e => patchCalc({ ot_total: Number(e.target.value) })} />
                 </div>
                 <div>
                   <label className="label text-xs">ยอดขายรวม (฿)</label>
-                  <input type="number" min={0} step={1} className="input-field"
+                  <input type="number" min={0} step="any" className="input-field"
                     value={calcEdit.sales_total}
                     onChange={e => patchCalc({ sales_total: Number(e.target.value) })} />
                 </div>
                 <div>
                   <label className="label text-xs">ค่าคอมมิชชัน (฿)</label>
-                  <input type="number" min={0} step={1} className="input-field"
+                  <input type="number" min={0} step="any" className="input-field"
                     value={calcEdit.commission_total}
                     onChange={e => patchCalc({ commission_total: Number(e.target.value) })} />
                 </div>
                 <div>
                   <label className="label text-xs">โบนัส (฿)</label>
-                  <input type="number" min={0} step={1} className="input-field"
+                  <input type="number" min={0} step="any" className="input-field"
                     value={calcEdit.bonus}
                     onChange={e => patchCalc({ bonus: Number(e.target.value) })} />
                 </div>
                 <div>
                   <label className="label text-xs">รายการหัก (฿)</label>
-                  <input type="number" min={0} step={1} className="input-field"
+                  <input type="number" min={0} step="any" className="input-field"
                     value={calcEdit.deductions}
                     onChange={e => patchCalc({ deductions: Number(e.target.value) })} />
                 </div>
@@ -469,7 +469,7 @@ export default function PayrollPage() {
               <div className="pt-3 border-t border-gray-200 flex flex-wrap items-end justify-between gap-3">
                 <div>
                   <label className="label text-xs">รวมทั้งหมดที่จ่ายจริง (฿)</label>
-                  <input type="number" min={0} step={1}
+                  <input type="number" min={0} step="any"
                     className={`input-field text-lg font-bold w-56 ${manualTotal ? 'border-amber-400 bg-amber-50' : ''}`}
                     value={calcEdit.total_pay}
                     onChange={e => { setManualTotal(true); setCalcEdit(prev => prev ? { ...prev, total_pay: Number(e.target.value) } : prev) }} />
@@ -549,49 +549,49 @@ export default function PayrollPage() {
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div>
                           <label className="label text-xs">วันทำงาน</label>
-                          <input type="number" min={0} step={0.5} className="input-field"
+                          <input type="number" min={0} step="any" className="input-field"
                             value={editForm.days_worked}
                             onChange={e => patchEdit({ days_worked: Number(e.target.value) })} />
                         </div>
                         <div>
                           <label className="label text-xs">ค่าแรงรวม (฿)</label>
-                          <input type="number" min={0} step={1} className="input-field"
+                          <input type="number" min={0} step="any" className="input-field"
                             value={editForm.day_rate_total}
                             onChange={e => patchEdit({ day_rate_total: Number(e.target.value) })} />
                         </div>
                         <div>
                           <label className="label text-xs">OT (ชม.)</label>
-                          <input type="number" min={0} step={0.5} className="input-field"
+                          <input type="number" min={0} step="any" className="input-field"
                             value={editForm.ot_hours_total}
                             onChange={e => patchEdit({ ot_hours_total: Number(e.target.value) })} />
                         </div>
                         <div>
                           <label className="label text-xs">ค่า OT (฿)</label>
-                          <input type="number" min={0} step={1} className="input-field"
+                          <input type="number" min={0} step="any" className="input-field"
                             value={editForm.ot_total}
                             onChange={e => patchEdit({ ot_total: Number(e.target.value) })} />
                         </div>
                         <div>
                           <label className="label text-xs">ยอดขายรวม (฿)</label>
-                          <input type="number" min={0} step={1} className="input-field"
+                          <input type="number" min={0} step="any" className="input-field"
                             value={editForm.sales_total}
                             onChange={e => patchEdit({ sales_total: Number(e.target.value) })} />
                         </div>
                         <div>
                           <label className="label text-xs">ค่าคอมมิชชัน (฿)</label>
-                          <input type="number" min={0} step={1} className="input-field"
+                          <input type="number" min={0} step="any" className="input-field"
                             value={editForm.commission_total}
                             onChange={e => patchEdit({ commission_total: Number(e.target.value) })} />
                         </div>
                         <div>
                           <label className="label text-xs">โบนัส (฿)</label>
-                          <input type="number" min={0} step={1} className="input-field"
+                          <input type="number" min={0} step="any" className="input-field"
                             value={editForm.bonus}
                             onChange={e => patchEdit({ bonus: Number(e.target.value) })} />
                         </div>
                         <div>
                           <label className="label text-xs">รายการหัก (฿)</label>
-                          <input type="number" min={0} step={1} className="input-field"
+                          <input type="number" min={0} step="any" className="input-field"
                             value={editForm.deductions}
                             onChange={e => patchEdit({ deductions: Number(e.target.value) })} />
                         </div>
@@ -600,7 +600,7 @@ export default function PayrollPage() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 pt-3 border-t border-amber-200">
                         <div>
                           <label className="label text-xs">ยอดจ่ายจริง (฿)</label>
-                          <input type="number" min={0} step={1}
+                          <input type="number" min={0} step="any"
                             className={`input-field text-lg font-bold ${editManualTotal ? 'border-amber-400 bg-white' : ''}`}
                             value={editForm.total_pay}
                             onChange={e => { setEditManualTotal(true); setEditForm(prev => prev ? { ...prev, total_pay: Number(e.target.value) } : prev) }} />

@@ -247,12 +247,12 @@ export default function EmployeeDetailPage() {
               <div>
                 <label className="label">เงินเดือน/เดือน (฿)</label>
                 <input type="number" className="input-field" value={form.monthly_salary}
-                  onChange={e => setForm({ ...form, monthly_salary: Number(e.target.value) })} min={0} step={1} />
+                  onChange={e => setForm({ ...form, monthly_salary: Number(e.target.value) })} min={0} step="any" />
               </div>
               <div>
                 <label className="label">ค่า OT/ชั่วโมง (฿)</label>
                 <input type="number" className="input-field" value={form.ot_rate}
-                  onChange={e => setForm({ ...form, ot_rate: Number(e.target.value) })} min={0} step={10} />
+                  onChange={e => setForm({ ...form, ot_rate: Number(e.target.value) })} min={0} step="any" />
               </div>
               <div className="col-span-2 bg-purple-50 border border-purple-200 rounded-lg p-3 text-sm text-purple-700">
                 รายได้ = เงินเดือน {form.monthly_salary.toLocaleString()} ฿/เดือน + (OT × ชั่วโมง OT)
@@ -263,17 +263,17 @@ export default function EmployeeDetailPage() {
               <div>
                 <label className="label">ค่าแรงรายวัน (฿)</label>
                 <input type="number" className="input-field" value={form.daily_rate}
-                  onChange={e => setForm({ ...form, daily_rate: Number(e.target.value) })} min={0} step={1} />
+                  onChange={e => setForm({ ...form, daily_rate: Number(e.target.value) })} min={0} step="any" />
               </div>
               <div>
                 <label className="label">ค่า OT/ชั่วโมง (฿)</label>
                 <input type="number" className="input-field" value={form.ot_rate}
-                  onChange={e => setForm({ ...form, ot_rate: Number(e.target.value) })} min={0} step={10} />
+                  onChange={e => setForm({ ...form, ot_rate: Number(e.target.value) })} min={0} step="any" />
               </div>
               <div>
                 <label className="label">ค่าคอมมิชชั่น (%)</label>
                 <input type="number" className="input-field" value={form.commission_rate}
-                  onChange={e => setForm({ ...form, commission_rate: Number(e.target.value) })} min={0} max={100} step={0.5} />
+                  onChange={e => setForm({ ...form, commission_rate: Number(e.target.value) })} min={0} max={100} step="any" />
               </div>
             </div>
           )}

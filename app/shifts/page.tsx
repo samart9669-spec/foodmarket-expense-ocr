@@ -167,7 +167,7 @@ export default function ShiftsPage() {
                 onChange={(e) => setForm({ ...form, regular_hours: Number(e.target.value) })}
                 min={1}
                 max={24}
-                step={0.5}
+                step="any"
               />
               <span className="text-sm text-gray-500">ชั่วโมง (คำนวณอัตโนมัติจากเวลาเข้า-ออก)</span>
             </div>
@@ -183,7 +183,7 @@ export default function ShiftsPage() {
                 onChange={(e) => setForm({ ...form, break_minutes: Number(e.target.value) })}
                 min={0}
                 max={120}
-                step={5}
+                step="any"
               />
               <span className="text-sm text-gray-500">นาที</span>
             </div>
