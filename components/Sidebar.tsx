@@ -2,6 +2,8 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { canAccessPath } from '@/lib/roles'
 import { APP_VERSION, formatBuildTime } from '@/lib/version'
 
 const navItems = [
@@ -150,6 +152,19 @@ const adminItems = [
 
 export default function Sidebar() {
   const pathname = usePathname()
+  const [role, setRole] = useState('')
+
+  useEffect(() => {
+    try {
+      const s = sessionStorage.getItem('adminAuth')
+      setRole(s ? (JSON.parse(s).role || '') : '')
+    } catch { setRole('') }
+  }, [pathname])
+
+  // Restricted roles only see the pages they are allowed to open
+  const visibleNav = navItems.filter(i => canAccessPath(role, i.href))
+  const visibleAdmin = adminItems.filter(i => canAccessPath(role, i.href))
+
   return (
     <aside className="fixed left-0 top-0 h-full w-64 bg-gray-900 text-white flex flex-col z-50">
       <div className="p-6 border-b border-gray-800">
@@ -166,7 +181,7 @@ export default function Sidebar() {
         </div>
       </div>
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-        {navItems.map((item) => {
+        {visibleNav.map((item) => {
           const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
           return (
             <Link
@@ -183,8 +198,8 @@ export default function Sidebar() {
             </Link>
           )
         })}
-        <div className="my-2 border-t border-gray-800" />
-        {adminItems.map((item) => {
+        {visibleAdmin.length > 0 && <div className="my-2 border-t border-gray-800" />}
+        {visibleAdmin.map((item) => {
           const isActive = pathname.startsWith(item.href)
           return (
             <Link

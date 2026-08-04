@@ -4,6 +4,7 @@ export const runtime = 'edge'
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { getAuthHeaders } from '@/lib/utils'
 
 interface ShiftInfo {
   id: string; name: string; start_time: string; end_time: string
@@ -119,7 +120,7 @@ export default function DailyApprovalPage() {
     setLoading(true)
     setSavedMsg('')
     try {
-      const res = await fetch(`/api/attendance/daily-approval?date=${d}`)
+      const res = await fetch(`/api/attendance/daily-approval?date=${d}`, { headers: getAuthHeaders() })
       const data = await res.json() as any
       const s: Record<string, string> = data.settings || {}
       setSettings(s)
@@ -213,7 +214,7 @@ export default function DailyApprovalPage() {
 
       const res = await fetch('/api/attendance/daily-approval', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({ date, records, action }),
       })
       const data = await res.json() as any

@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     if (!username || !password || !display_name || !role) {
       return Response.json({ error: 'ข้อมูลไม่ครบถ้วน' }, { status: 400 })
     }
-    const validRoles: AdminRole[] = ['superadmin', 'admin', 'manager', 'viewer']
+    const validRoles: AdminRole[] = ['superadmin', 'admin', 'manager', 'approver', 'viewer']
     if (!validRoles.includes(role)) {
       return Response.json({ error: 'Role ไม่ถูกต้อง' }, { status: 400 })
     }

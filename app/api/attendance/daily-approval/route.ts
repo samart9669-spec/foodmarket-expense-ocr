@@ -1,11 +1,27 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
+import { verifySession } from '@/lib/admin-auth'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
 
+// Roles allowed to review and approve daily working time. 'approver' accounts
+// can reach this endpoint and nothing else.
+const APPROVAL_ROLES = ['superadmin', 'admin', 'manager', 'approver']
+
+async function authorizeApproval(request: NextRequest, db: any): Promise<boolean> {
+  const auth = request.headers.get('Authorization')
+  if (!auth?.startsWith('Bearer ')) return false
+  const user = await verifySession(db, auth.slice(7))
+  return !!user && APPROVAL_ROLES.includes(user.role)
+}
+
 export async function GET(request: NextRequest) {
   const { env } = getRequestContext()
   const db = env.DB
+  if (!(await authorizeApproval(request, db))) {
+    return Response.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const { searchParams } = new URL(request.url)
   const date = searchParams.get('date') || new Date().toISOString().slice(0, 10)
 
@@ -64,6 +80,10 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const { env } = getRequestContext()
   const db = env.DB
+
+  if (!(await authorizeApproval(request, db))) {
+    return Response.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
   try {
     const { date, records, action } = await request.json() as {

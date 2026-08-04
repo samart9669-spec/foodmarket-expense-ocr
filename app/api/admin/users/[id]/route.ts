@@ -28,7 +28,7 @@ export async function PATCH(
       values.push(body.display_name.trim())
     }
     if (body.role !== undefined) {
-      const validRoles: AdminRole[] = ['superadmin', 'admin', 'manager', 'viewer']
+      const validRoles: AdminRole[] = ['superadmin', 'admin', 'manager', 'approver', 'viewer']
       if (!validRoles.includes(body.role)) return Response.json({ error: 'Role ไม่ถูกต้อง' }, { status: 400 })
       updates.push('role = ?')
       values.push(body.role)

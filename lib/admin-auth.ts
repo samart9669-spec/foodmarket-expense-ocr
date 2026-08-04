@@ -1,20 +1,15 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { NextRequest } from 'next/server'
 
-export type AdminRole = 'superadmin' | 'admin' | 'manager' | 'viewer'
+import { AdminRole, hasPermission, isRestrictedRole } from '@/lib/roles'
+
+export type { AdminRole } from '@/lib/roles'
+export { hasPermission, RESTRICTED_ROLE_PATHS, canAccessPath, getHomePathForRole } from '@/lib/roles'
 
 export interface SessionUser {
   username: string
   role: AdminRole
   display_name: string
-}
-
-const ROLE_LEVEL: Record<AdminRole, number> = {
-  superadmin: 4, admin: 3, manager: 2, viewer: 1,
-}
-
-export function hasPermission(userRole: AdminRole, required: AdminRole): boolean {
-  return ROLE_LEVEL[userRole] >= ROLE_LEVEL[required]
 }
 
 export async function hashPassword(username: string, password: string): Promise<string> {
@@ -130,6 +125,9 @@ export async function isAdminAuthorized(
   if (!auth?.startsWith('Bearer ')) return null
   const user = await verifySession(db, auth.slice(7))
   if (!user) return null
+  // Restricted roles are confined to their own endpoints — they never pass the
+  // general admin gate, whatever level is asked for.
+  if (isRestrictedRole(user.role)) return null
   if (!hasPermission(user.role, requiredRole)) return null
   return user
 }

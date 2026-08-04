@@ -5,6 +5,7 @@ export const runtime = 'edge'
 import { useState, useEffect, useCallback } from 'react'
 import { formatThaiTime, getTodayString } from '@/lib/utils'
 import EmployeeTypeTag from '@/components/EmployeeTypeTag'
+import { ROLE_LABELS, ROLE_COLORS } from '@/lib/roles'
 
 interface Employee {
   id: string; name: string; employee_type: string
@@ -48,19 +49,6 @@ function hhmmToStored(date: string, hhMM: string): string {
   return `${date} ${hhMM}:00`
 }
 
-// ── Role labels & colors ──────────────────────────────────────────
-const ROLE_LABELS: Record<string, string> = {
-  superadmin: 'เจ้าของระบบ',
-  admin: 'ผู้จัดการ',
-  manager: 'หัวหน้างาน',
-  viewer: 'ผู้ดูแล (อ่านอย่างเดียว)',
-}
-const ROLE_COLORS: Record<string, string> = {
-  superadmin: 'bg-purple-100 text-purple-800 border-purple-300',
-  admin: 'bg-red-100 text-red-800 border-red-300',
-  manager: 'bg-blue-100 text-blue-800 border-blue-300',
-  viewer: 'bg-gray-100 text-gray-700 border-gray-300',
-}
 
 // ── Users Tab ─────────────────────────────────────────────────────
 function UsersTab({ token, currentUsername }: { token: string; currentUsername: string }) {

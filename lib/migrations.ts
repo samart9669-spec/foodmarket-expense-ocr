@@ -57,7 +57,7 @@ export async function runMigrations(db: any): Promise<string[]> {
       username TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       display_name TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'viewer' CHECK(role IN ('superadmin','admin','manager','viewer')),
+      role TEXT NOT NULL DEFAULT 'viewer' CHECK(role IN ('superadmin','admin','manager','approver','viewer')),
       is_active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
@@ -149,6 +149,38 @@ export async function runMigrations(db: any): Promise<string[]> {
   await run('ALTER TABLE payroll ADD COLUMN original_total_pay REAL', 'payroll.original_total_pay')
   await run('ALTER TABLE payroll ADD COLUMN edited_at TEXT', 'payroll.edited_at')
   await run('ALTER TABLE payroll ADD COLUMN edited_by TEXT', 'payroll.edited_by')
+
+  // The original admin_users CHECK constraint predates the 'approver' role, so
+  // rebuild the table once to accept it. Existing rows are copied across.
+  try {
+    const def = await db.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'admin_users'"
+    ).first() as any
+    if (def?.sql && !String(def.sql).includes('approver')) {
+      await db.prepare(`
+        CREATE TABLE admin_users_v2 (
+          id TEXT PRIMARY KEY,
+          username TEXT UNIQUE NOT NULL,
+          password_hash TEXT NOT NULL,
+          display_name TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'viewer' CHECK(role IN ('superadmin','admin','manager','approver','viewer')),
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `).run()
+      await db.prepare(`
+        INSERT INTO admin_users_v2 (id, username, password_hash, display_name, role, is_active, created_at)
+        SELECT id, username, password_hash, display_name, role, is_active, created_at FROM admin_users
+      `).run()
+      await db.prepare('DROP TABLE admin_users').run()
+      await db.prepare('ALTER TABLE admin_users_v2 RENAME TO admin_users').run()
+      results.push('✓ admin_users role constraint (added approver)')
+    } else {
+      results.push('~ admin_users role constraint (already allows approver)')
+    }
+  } catch (e: any) {
+    results.push(`✗ admin_users role constraint: ${e?.message}`)
+  }
 
   return results
 }
