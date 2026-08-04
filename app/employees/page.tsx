@@ -187,9 +187,14 @@ export default function EmployeesPage() {
                   <tr key={emp.id} className={`hover:bg-gray-50 transition-colors ${!emp.is_active ? 'opacity-50' : ''}`}>
                     <td className="table-cell">
                       {emp.face_photo ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={emp.face_photo} alt={emp.name}
-                          className="w-10 h-10 rounded-full object-cover border-2 border-green-300" />
+                        <div className="relative w-10 h-10" title={emp.face_descriptor ? 'ลงทะเบียนใบหน้าแล้ว' : 'มีรูปแต่ยังไม่ได้ลงทะเบียนใบหน้า — เปิดหน้าแก้ไขเพื่อลงทะเบียน'}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={emp.face_photo} alt={emp.name}
+                            className={`w-10 h-10 rounded-full object-cover border-2 ${emp.face_descriptor ? 'border-green-300' : 'border-amber-400'}`} />
+                          {!emp.face_descriptor && (
+                            <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-amber-400 text-white text-[10px] font-bold flex items-center justify-center border border-white">!</span>
+                          )}
+                        </div>
                       ) : (
                         <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
                           <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

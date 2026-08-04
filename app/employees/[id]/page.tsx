@@ -5,12 +5,13 @@ export const runtime = 'edge'
 import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { getAdminRole, getAuthHeaders } from '@/lib/utils'
+import { extractFaceDescriptor } from '@/lib/face'
 
 interface Employee {
   id: string; name: string; employee_type: string; job_title: string | null; salary_type: string
   sales_point_id: string | null; daily_rate: number; monthly_salary: number
   ot_rate: number; commission_rate: number; phone: string | null
-  is_active: number; qr_code: string | null; face_descriptor: string | null; created_at: string
+  is_active: number; qr_code: string | null; face_descriptor: string | null; face_photo: string | null; created_at: string
 }
 interface SalesPoint { id: string; name: string }
 
@@ -29,6 +30,8 @@ export default function EmployeeDetailPage() {
   const [positionPreset, setPositionPreset] = useState('kitchen')
   const [jobTitleCustom, setJobTitleCustom] = useState('')
   const [forbidden, setForbidden] = useState(false)
+  const [registeringFace, setRegisteringFace] = useState(false)
+  const [faceMsg, setFaceMsg] = useState('')
   const role = typeof window !== 'undefined' ? getAdminRole() : ''
   const [form, setForm] = useState({
     name: '', job_title: 'kitchen', employee_type: 'kitchen', salary_type: 'daily',
@@ -123,6 +126,33 @@ export default function EmployeeDetailPage() {
       setSuccess('บันทึกข้อมูลสำเร็จ'); setEmployee(data.employee)
       setTimeout(() => setSuccess(''), 3000)
     } catch { setError('เกิดข้อผิดพลาด') } finally { setSaving(false) }
+  }
+
+  // Turns an already uploaded photo into a face descriptor so the scanners
+  // can recognise this employee.
+  const registerFaceFromPhoto = async () => {
+    if (!employee?.face_photo) return
+    setRegisteringFace(true); setFaceMsg('')
+    try {
+      const descriptor = await extractFaceDescriptor(employee.face_photo)
+      if (!descriptor) {
+        setFaceMsg('ไม่พบใบหน้าในรูปนี้ — กรุณาใช้รูปที่เห็นหน้าชัด ตรงกล้อง และมีแสงเพียงพอ')
+        return
+      }
+      const res = await fetch('/api/employees/face-descriptor', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employee_id: id, face_descriptor: descriptor }),
+      })
+      if (!res.ok) { setFaceMsg('บันทึกไม่สำเร็จ กรุณาลองใหม่'); return }
+      setEmployee(prev => prev ? { ...prev, face_descriptor: descriptor } : prev)
+      setSuccess('ลงทะเบียนใบหน้าสำเร็จ')
+      setTimeout(() => setSuccess(''), 3000)
+    } catch {
+      setFaceMsg('เกิดข้อผิดพลาด กรุณาลองใหม่')
+    } finally {
+      setRegisteringFace(false)
+    }
   }
 
   const handleClearFace = async () => {
@@ -281,12 +311,43 @@ export default function EmployeeDetailPage() {
 
         <div className="card space-y-3">
           <h2 className="font-semibold text-gray-900 pb-2 border-b">ข้อมูลใบหน้า & QR Code</h2>
-          <div className="flex items-center justify-between">
-            <div>
+
+          <div className="flex items-start gap-4">
+            {employee.face_photo ? (
+              <div className={`w-24 h-24 rounded-xl overflow-hidden border-4 flex-shrink-0 ${employee.face_descriptor ? 'border-green-400' : 'border-amber-400'}`}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={employee.face_photo} alt={employee.name} className="w-full h-full object-cover" />
+              </div>
+            ) : (
+              <div className="w-24 h-24 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0">
+                <svg className="w-9 h-9 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+              </div>
+            )}
+
+            <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-gray-700">Face ID</p>
-              {employee.face_descriptor ? <p className="text-sm text-green-600">✓ ลงทะเบียนใบหน้าแล้ว</p> : <p className="text-sm text-gray-400">ยังไม่ได้ลงทะเบียนใบหน้า</p>}
+              {employee.face_descriptor ? (
+                <>
+                  <p className="text-sm text-green-600">✓ ลงทะเบียนใบหน้าแล้ว — สแกนเข้างานได้</p>
+                  <button type="button" onClick={handleClearFace}
+                    className="text-sm text-red-500 hover:text-red-700 mt-1">ลบข้อมูลใบหน้า</button>
+                </>
+              ) : employee.face_photo ? (
+                <>
+                  <p className="text-sm text-amber-700">มีรูปแล้ว แต่ยังไม่ได้ลงทะเบียนใบหน้า</p>
+                  <p className="text-xs text-gray-500 mt-0.5">กดปุ่มด้านล่างเพื่อประมวลผลรูปนี้ให้สแกนเข้างานได้</p>
+                  <button type="button" onClick={registerFaceFromPhoto} disabled={registeringFace}
+                    className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm rounded-lg font-medium transition-colors">
+                    {registeringFace ? 'กำลังตรวจจับใบหน้า...' : 'ลงทะเบียนใบหน้าจากรูปนี้'}
+                  </button>
+                  {faceMsg && <p className="text-sm text-amber-700 mt-2">{faceMsg}</p>}
+                </>
+              ) : (
+                <p className="text-sm text-gray-400">ยังไม่มีรูปภาพ — เพิ่มรูปได้ที่หน้าเพิ่มพนักงาน</p>
+              )}
             </div>
-            {employee.face_descriptor && <button type="button" onClick={handleClearFace} className="text-sm text-red-500 hover:text-red-700">ลบข้อมูลใบหน้า</button>}
           </div>
           <div>
             <p className="text-sm font-medium text-gray-700">QR Code</p>

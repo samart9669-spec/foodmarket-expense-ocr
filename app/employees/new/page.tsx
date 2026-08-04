@@ -5,6 +5,7 @@ export const runtime = 'edge'
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { getAdminRole, getAuthHeaders } from '@/lib/utils'
+import { extractFaceDescriptor } from '@/lib/face'
 
 interface SalesPoint { id: string; name: string }
 
@@ -45,6 +46,7 @@ export default function NewEmployeePage() {
   // Photo state
   const [photoState, setPhotoState] = useState<PhotoState>('idle')
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null)
+  const [faceDescriptor, setFaceDescriptor] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [qrCode, setQrCode] = useState('')
 
@@ -98,12 +100,16 @@ export default function NewEmployeePage() {
     processPhoto(url)
   }
 
-  // ── Process photo: compress then store ───────────────────────────
+  // ── Process photo: compress, then extract the face descriptor ────
+  // The descriptor is what the scanners match against, so it is computed here
+  // rather than left for the first scanner session to fill in.
   const processPhoto = async (src: string) => {
     setPhotoState('analyzing')
     setPhotoDataUrl(src)
     const compressed = await compressImage(src)
     setPhotoDataUrl(compressed)
+    const descriptor = await extractFaceDescriptor(compressed)
+    setFaceDescriptor(descriptor)
     setPhotoState('done')
   }
 
@@ -111,6 +117,7 @@ export default function NewEmployeePage() {
     stopCamera()
     setPhotoState('idle')
     setPhotoDataUrl(null)
+    setFaceDescriptor(null)
   }
 
   const isOfficePosition = positionPreset === 'head_office' || positionPreset === 'other'
@@ -156,6 +163,7 @@ export default function NewEmployeePage() {
           ...form,
           job_title: actualJobTitle,
           face_photo: photoDataUrl || undefined,
+          face_descriptor: faceDescriptor || undefined,
           qr_code: qrCode || undefined,
           sales_point_id: form.employee_type === 'sales' ? form.sales_point_id : undefined,
           monthly_salary: form.salary_type === 'monthly' ? form.monthly_salary : 0,
@@ -392,29 +400,39 @@ export default function NewEmployeePage() {
               )}
               <div className="flex items-center gap-3 text-blue-600">
                 <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                <span className="text-sm font-medium">กำลังประมวลผลรูปภาพ...</span>
+                <span className="text-sm font-medium">กำลังตรวจจับใบหน้าในรูป...</span>
               </div>
             </div>
           )}
 
-          {/* Done */}
+          {/* Done — face detected or not */}
           {photoState === 'done' && photoDataUrl && (
             <div className="space-y-3">
-              <div className="relative w-28 h-28 mx-auto rounded-xl overflow-hidden border-4 border-green-400">
+              <div className={`relative w-28 h-28 mx-auto rounded-xl overflow-hidden border-4 ${faceDescriptor ? 'border-green-400' : 'border-amber-400'}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={photoDataUrl} alt="face" className="w-full h-full object-cover" />
-                <div className="absolute bottom-0 left-0 right-0 bg-green-500 text-white text-center text-xs py-0.5 font-medium">
-                  ✓ พร้อมใช้งาน
+                <div className={`absolute bottom-0 left-0 right-0 text-white text-center text-xs py-0.5 font-medium ${faceDescriptor ? 'bg-green-500' : 'bg-amber-500'}`}>
+                  {faceDescriptor ? '✓ พร้อมใช้งาน' : 'ไม่พบใบหน้า'}
                 </div>
               </div>
 
-              <div className="flex items-center justify-between px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
-                <div>
-                  <p className="text-sm font-medium text-green-800">บันทึกรูปสำเร็จ</p>
-                  <p className="text-xs text-green-600">รูปภาพพร้อมใช้งาน</p>
+              {faceDescriptor ? (
+                <div className="flex items-center justify-between px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
+                  <div>
+                    <p className="text-sm font-medium text-green-800">ตรวจพบใบหน้าแล้ว</p>
+                    <p className="text-xs text-green-600">สแกนใบหน้าเข้างานได้ทันทีหลังบันทึก</p>
+                  </div>
+                  <button type="button" onClick={resetPhoto} className="text-xs text-gray-500 hover:underline">เปลี่ยน</button>
                 </div>
-                <button type="button" onClick={resetPhoto} className="text-xs text-gray-500 hover:underline">เปลี่ยน</button>
-              </div>
+              ) : (
+                <div className="flex items-center justify-between px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+                  <div>
+                    <p className="text-sm font-medium text-amber-800">ไม่พบใบหน้าในรูปนี้</p>
+                    <p className="text-xs text-amber-700">บันทึกรูปได้ แต่จะสแกนใบหน้าไม่ได้ — ถ่ายให้เห็นหน้าชัด ตรงกล้อง แสงพอ</p>
+                  </div>
+                  <button type="button" onClick={resetPhoto} className="text-xs text-amber-700 font-medium hover:underline whitespace-nowrap">ถ่ายใหม่</button>
+                </div>
+              )}
             </div>
           )}
 
