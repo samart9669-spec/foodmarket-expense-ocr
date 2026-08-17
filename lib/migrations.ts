@@ -50,6 +50,12 @@ export async function runMigrations(db: any): Promise<string[]> {
   await run('ALTER TABLE leave_requests ADD COLUMN admin_note TEXT', 'leave_requests.admin_note')
   await run('ALTER TABLE leave_requests ADD COLUMN reviewed_at TEXT', 'leave_requests.reviewed_at')
 
+  // Part-day leave: leave_unit 'hour' uses start_time/end_time on a single date
+  await run("ALTER TABLE leave_requests ADD COLUMN leave_unit TEXT DEFAULT 'day'", 'leave_requests.leave_unit')
+  await run('ALTER TABLE leave_requests ADD COLUMN start_time TEXT', 'leave_requests.start_time')
+  await run('ALTER TABLE leave_requests ADD COLUMN end_time TEXT', 'leave_requests.end_time')
+  await run('ALTER TABLE leave_requests ADD COLUMN hours REAL', 'leave_requests.hours')
+
   // Admin users table
   await run(`
     CREATE TABLE IF NOT EXISTS admin_users (

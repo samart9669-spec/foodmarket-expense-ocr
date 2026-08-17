@@ -75,9 +75,30 @@ export async function POST(request: NextRequest) {
     await ensureLeaveRequestsTable(env.DB)
     const body = await request.json() as any
     const { employee_id, date_start, date_end, leave_type, reason } = body
+    const leave_unit = body.leave_unit === 'hour' ? 'hour' : 'day'
+    const start_time: string | undefined = body.start_time
+    const end_time: string | undefined = body.end_time
 
     if (!employee_id || !date_start || !date_end || !leave_type) {
       return Response.json({ error: 'กรุณากรอกข้อมูลให้ครบ' }, { status: 400 })
+    }
+
+    // Part-day leave covers one date and needs a valid time range
+    let hours: number | null = null
+    if (leave_unit === 'hour') {
+      if (!start_time || !end_time) {
+        return Response.json({ error: 'กรุณาระบุเวลาเริ่มและเวลาสิ้นสุด' }, { status: 400 })
+      }
+      const [sh, sm] = start_time.split(':').map(Number)
+      const [eh, em] = end_time.split(':').map(Number)
+      if ([sh, sm, eh, em].some(Number.isNaN)) {
+        return Response.json({ error: 'รูปแบบเวลาไม่ถูกต้อง' }, { status: 400 })
+      }
+      const minutes = (eh * 60 + em) - (sh * 60 + sm)
+      if (minutes <= 0) {
+        return Response.json({ error: 'เวลาสิ้นสุดต้องหลังเวลาเริ่ม' }, { status: 400 })
+      }
+      hours = Math.round((minutes / 60) * 100) / 100
     }
 
     const employee = await env.DB.prepare('SELECT * FROM employees WHERE id = ? AND is_active = 1')
@@ -86,13 +107,23 @@ export async function POST(request: NextRequest) {
 
     const id = generateId()
     await env.DB.prepare(`
-      INSERT INTO leave_requests (id, employee_id, date_start, date_end, leave_type, reason)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).bind(id, employee_id, date_start, date_end, leave_type, reason || null).run()
+      INSERT INTO leave_requests (id, employee_id, date_start, date_end, leave_type, reason, leave_unit, start_time, end_time, hours)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      id, employee_id, date_start,
+      leave_unit === 'hour' ? date_start : date_end,
+      leave_type, reason || null,
+      leave_unit,
+      leave_unit === 'hour' ? start_time : null,
+      leave_unit === 'hour' ? end_time : null,
+      hours,
+    ).run()
 
     return Response.json({
       success: true,
-      message: 'ส่งคำขอลาสำเร็จ รอการอนุมัติจากผู้จัดการ',
+      message: leave_unit === 'hour'
+        ? `ส่งคำขอลา ${hours} ชั่วโมงสำเร็จ รอการอนุมัติจากผู้จัดการ`
+        : 'ส่งคำขอลาสำเร็จ รอการอนุมัติจากผู้จัดการ',
       id,
     })
   } catch (error) {

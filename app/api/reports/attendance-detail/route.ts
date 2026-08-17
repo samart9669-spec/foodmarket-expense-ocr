@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
         WHERE a.employee_id = ? AND a.date >= ? AND a.date <= ?
       `).bind(employeeId, monthStart, monthEnd).all(),
       db.prepare(`
-        SELECT date_start, date_end, leave_type, reason FROM leave_requests
+        SELECT date_start, date_end, leave_type, reason, leave_unit, start_time, end_time, hours FROM leave_requests
         WHERE employee_id = ? AND status = 'approved' AND date_start <= ? AND date_end >= ?
       `).bind(employeeId, monthEnd, monthStart).all(),
     ])
@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
     const attMap = new Map<string, any>()
     for (const a of (attendanceRes.results || []) as any[]) attMap.set(a.date, a)
 
-    const leaveMap = new Map<string, { leave_type: string; reason: string | null }>()
+    const leaveMap = new Map<string, { leave_type: string; reason: string | null; leave_unit?: string; start_time?: string; end_time?: string; hours?: number }>()
     for (const l of (leavesRes.results || []) as any[]) {
       const start = l.date_start < monthStart ? monthStart : l.date_start
       const end = l.date_end > monthEnd ? monthEnd : l.date_end
@@ -63,7 +63,10 @@ export async function GET(request: NextRequest) {
       const endD = new Date(end + 'T00:00:00')
       while (d <= endD) {
         const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-        leaveMap.set(key, { leave_type: l.leave_type, reason: l.reason })
+        leaveMap.set(key, {
+          leave_type: l.leave_type, reason: l.reason,
+          leave_unit: l.leave_unit || 'day', start_time: l.start_time, end_time: l.end_time, hours: l.hours,
+        })
         d.setDate(d.getDate() + 1)
       }
     }
@@ -79,11 +82,13 @@ export async function GET(request: NextRequest) {
       const att = attMap.get(dateStr)
       const leave = leaveMap.get(dateStr)
 
+      const partialLeave = leave?.leave_unit === 'hour'
       let kind: string
       if (att && att.status === 'absent') kind = 'absent'
       else if (att && att.status === 'late') kind = 'late'
       else if (att) kind = 'present'
-      else if (leave) kind = 'leave'
+      else if (leave && !partialLeave) kind = 'leave'
+      else if (partialLeave) kind = 'leave_hours'
       else if (workDays.length > 0 && !workDays.includes(dow)) kind = 'dayoff'
       else if (dateStr > today) kind = 'future'
       else if (workDays.length > 0) kind = 'missing'
@@ -101,6 +106,10 @@ export async function GET(request: NextRequest) {
         sales_point_name: att?.sales_point_name ?? null,
         leave_type: leave?.leave_type ?? null,
         leave_reason: leave?.reason ?? null,
+        leave_unit: leave?.leave_unit ?? null,
+        leave_start_time: leave?.start_time ?? null,
+        leave_end_time: leave?.end_time ?? null,
+        leave_hours: leave?.hours ?? null,
       })
     }
 
@@ -108,6 +117,7 @@ export async function GET(request: NextRequest) {
       present: days.filter(d => d.kind === 'present' || d.kind === 'late').length,
       late: days.filter(d => d.kind === 'late').length,
       leave: days.filter(d => d.kind === 'leave').length,
+      leave_hours: Math.round(days.reduce((sum, d) => sum + (d.leave_unit === 'hour' ? (d.leave_hours || 0) : 0), 0) * 100) / 100,
       absent: days.filter(d => d.kind === 'absent' || d.kind === 'missing').length,
     }
 

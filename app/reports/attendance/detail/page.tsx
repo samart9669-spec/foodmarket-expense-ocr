@@ -17,6 +17,10 @@ interface DayRow {
   sales_point_name: string | null
   leave_type: string | null
   leave_reason: string | null
+  leave_unit: string | null
+  leave_start_time: string | null
+  leave_end_time: string | null
+  leave_hours: number | null
 }
 
 interface DetailData {
@@ -29,7 +33,7 @@ interface DetailData {
     work_end: string | null
     work_days: number[]
   }
-  summary: { present: number; late: number; leave: number; absent: number }
+  summary: { present: number; late: number; leave: number; leave_hours: number; absent: number }
   days: DayRow[]
 }
 
@@ -41,6 +45,7 @@ const KIND_BADGE: Record<string, { label: string; cls: string }> = {
   present: { label: 'มาทำงาน', cls: 'bg-green-100 text-green-700' },
   late: { label: 'มาสาย', cls: 'bg-orange-100 text-orange-700' },
   leave: { label: 'ลา', cls: 'bg-blue-100 text-blue-700' },
+  leave_hours: { label: 'ลาบางช่วง', cls: 'bg-sky-100 text-sky-700' },
   absent: { label: 'ขาดงาน', cls: 'bg-red-100 text-red-700' },
   missing: { label: 'ขาด (ไม่เช็คอิน)', cls: 'bg-red-100 text-red-700' },
   dayoff: { label: 'วันหยุด', cls: 'bg-gray-100 text-gray-400' },
@@ -123,6 +128,9 @@ function DetailContent() {
                 <div className="flex items-baseline gap-1.5 mt-1">
                   <span className={`text-3xl font-bold ${c.color}`}>{data.summary[c.key]}</span>
                   <span className="text-sm text-gray-400">วัน</span>
+                  {c.key === 'leave' && data.summary.leave_hours > 0 && (
+                    <span className="text-sm text-blue-500 font-medium">+{data.summary.leave_hours} ชม.</span>
+                  )}
                 </div>
               </div>
             ))}
@@ -146,8 +154,12 @@ function DetailContent() {
                     const badge = KIND_BADGE[d.kind] ?? KIND_BADGE.none
                     const isWeekendish = d.kind === 'dayoff'
                     const noteParts: string[] = []
-                    if (d.kind === 'leave') {
-                      noteParts.push(`${LEAVE_LABELS[d.leave_type ?? ''] ?? d.leave_type ?? ''}${d.leave_reason ? ` — ${d.leave_reason}` : ''}`)
+                    if (d.kind === 'leave' || d.leave_unit === 'hour') {
+                      const kindLabel = LEAVE_LABELS[d.leave_type ?? ''] ?? d.leave_type ?? ''
+                      const hourPart = d.leave_unit === 'hour'
+                        ? ` ${d.leave_start_time}–${d.leave_end_time} (${d.leave_hours} ชม.)`
+                        : ''
+                      noteParts.push(`${kindLabel}${hourPart}${d.leave_reason ? ` — ${d.leave_reason}` : ''}`)
                     } else if (d.offsite_location) {
                       noteParts.push(`นอกสถานที่: ${d.offsite_location}`)
                     } else if (d.sales_point_name) {

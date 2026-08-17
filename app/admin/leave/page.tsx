@@ -15,6 +15,10 @@ interface LeaveRequest {
   status: string
   admin_note: string
   created_at: string
+  leave_unit: string | null
+  start_time: string | null
+  end_time: string | null
+  hours: number | null
 }
 
 const leaveLabel = (t: string) => ({ sick: 'ลาป่วย', annual: 'ลาพักร้อน', personal: 'ลากิจ', emergency: 'ลาฉุกเฉิน' }[t] || t)
@@ -111,7 +115,16 @@ export default function AdminLeavePage() {
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${leaveColor(req.leave_type)}`}>{leaveLabel(req.leave_type)}</span>
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusBadge(req.status)}`}>{statusLabel(req.status)}</span>
                   </div>
-                  <p className="text-gray-400 text-sm mt-1">{req.date_start} → {req.date_end}</p>
+                  {req.leave_unit === 'hour' ? (
+                    <p className="text-gray-400 text-sm mt-1">
+                      {req.date_start} · {req.start_time}–{req.end_time}
+                      <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-orange-900 text-orange-200 font-medium">
+                        ลารายชั่วโมง {req.hours} ชม.
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="text-gray-400 text-sm mt-1">{req.date_start} → {req.date_end}</p>
+                  )}
                   {req.reason && <p className="text-gray-500 text-sm mt-0.5">เหตุผล: {req.reason}</p>}
                   {req.admin_note && <p className="text-blue-400 text-sm mt-0.5">หมายเหตุ: {req.admin_note}</p>}
                   <p className="text-gray-600 text-xs mt-1">ยื่นเมื่อ {new Date(req.created_at).toLocaleDateString('th-TH')}</p>

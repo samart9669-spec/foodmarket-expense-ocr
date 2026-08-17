@@ -13,6 +13,7 @@ interface StatRow {
   present: number
   late: number
   leave: number
+  leave_hours: number
   absent: number
 }
 
@@ -72,7 +73,7 @@ export default function AttendanceStatsPage() {
     return groups
   }, [rows])
 
-  const total = (list: StatRow[], key: 'present' | 'late' | 'leave' | 'absent') =>
+  const total = (list: StatRow[], key: 'present' | 'late' | 'leave' | 'leave_hours' | 'absent') =>
     list.reduce((s, r) => s + r[key], 0)
 
   const monthLabel = useMemo(() => {
@@ -81,8 +82,8 @@ export default function AttendanceStatsPage() {
   }, [month])
 
   const exportCSV = () => {
-    const header = ['ชื่อ-นามสกุล', 'แผนก', 'มาทำงาน (วัน)', 'มาสาย (วัน)', 'ลา (วัน)', 'ขาด (วัน)']
-    const lines = rows.map(r => [r.name, DEPT_LABELS[r.department], r.present, r.late, r.leave, r.absent].join(','))
+    const header = ['ชื่อ-นามสกุล', 'แผนก', 'มาทำงาน (วัน)', 'มาสาย (วัน)', 'ลา (วัน)', 'ลา (ชม.)', 'ขาด (วัน)']
+    const lines = rows.map(r => [r.name, DEPT_LABELS[r.department], r.present, r.late, r.leave, r.leave_hours, r.absent].join(','))
     const csv = '﻿' + [`สถิติขาด ลา มาสาย ประจำเดือน ${monthLabel}`, header.join(','), ...lines].join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
     const a = document.createElement('a')
@@ -148,6 +149,9 @@ export default function AttendanceStatsPage() {
             <div className="flex items-baseline gap-1.5 mt-1">
               <span className={`text-3xl font-bold ${c.color}`}>{total(rows, c.key)}</span>
               <span className="text-sm text-gray-400">วัน</span>
+              {c.key === 'leave' && total(rows, 'leave_hours') > 0 && (
+                <span className="text-sm text-blue-500 font-medium">+{Math.round(total(rows, 'leave_hours') * 100) / 100} ชม.</span>
+              )}
             </div>
           </div>
         ))}
@@ -192,7 +196,12 @@ export default function AttendanceStatsPage() {
                         </td>
                         <td className="px-3 py-3 text-center text-green-700">{r.present}</td>
                         <td className={`px-3 py-3 text-center ${r.late > 0 ? 'text-orange-500 font-semibold' : 'text-gray-400'}`}>{r.late}</td>
-                        <td className={`px-3 py-3 text-center ${r.leave > 0 ? 'text-blue-600 font-semibold' : 'text-gray-400'}`}>{r.leave}</td>
+                        <td className={`px-3 py-3 text-center ${r.leave > 0 || r.leave_hours > 0 ? 'text-blue-600 font-semibold' : 'text-gray-400'}`}>
+                          {r.leave}
+                          {r.leave_hours > 0 && (
+                            <span className="block text-[11px] font-normal text-blue-500">+{r.leave_hours} ชม.</span>
+                          )}
+                        </td>
                         <td className={`px-3 py-3 text-center ${r.absent > 0 ? 'text-red-600 font-semibold' : 'text-gray-400'}`}>{r.absent}</td>
                       </tr>
                     ))}
@@ -200,7 +209,12 @@ export default function AttendanceStatsPage() {
                       <td className="px-3 py-2 text-xs text-gray-500 font-medium text-right">รวม{DEPT_LABELS[dept]}</td>
                       <td className="px-3 py-2 text-center text-xs font-semibold text-green-700">{total(byDept[dept], 'present')}</td>
                       <td className="px-3 py-2 text-center text-xs font-semibold text-orange-500">{total(byDept[dept], 'late')}</td>
-                      <td className="px-3 py-2 text-center text-xs font-semibold text-blue-600">{total(byDept[dept], 'leave')}</td>
+                      <td className="px-3 py-2 text-center text-xs font-semibold text-blue-600">
+                        {total(byDept[dept], 'leave')}
+                        {total(byDept[dept], 'leave_hours') > 0 && (
+                          <span className="block text-[10px] font-normal">+{Math.round(total(byDept[dept], 'leave_hours') * 100) / 100} ชม.</span>
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-center text-xs font-semibold text-red-600">{total(byDept[dept], 'absent')}</td>
                     </tr>
                   </>

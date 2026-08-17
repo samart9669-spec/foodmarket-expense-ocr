@@ -16,7 +16,10 @@ const LEAVE_TYPES = [
 
 export default function EmployeeLeavePage() {
   const [employees, setEmployees] = useState<Employee[]>([])
-  const [form, setForm] = useState({ employee_id: '', date_start: '', date_end: '', leave_type: 'sick', reason: '' })
+  const [form, setForm] = useState({
+    employee_id: '', date_start: '', date_end: '', leave_type: 'sick', reason: '',
+    leave_unit: 'day' as 'day' | 'hour', start_time: '09:00', end_time: '12:00',
+  })
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null)
   const [search, setSearch] = useState('')
@@ -29,11 +32,26 @@ export default function EmployeeLeavePage() {
 
   const filtered = employees.filter(e => e.name.includes(search))
 
+  // Hours covered by a part-day request; null until both times are set
+  const hourCount = (() => {
+    if (form.leave_unit !== 'hour' || !form.start_time || !form.end_time) return null
+    const [sh, sm] = form.start_time.split(':').map(Number)
+    const [eh, em] = form.end_time.split(':').map(Number)
+    if ([sh, sm, eh, em].some(Number.isNaN)) return null
+    return Math.round((((eh * 60 + em) - (sh * 60 + sm)) / 60) * 100) / 100
+  })()
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.employee_id) { setResult({ success: false, message: 'กรุณาเลือกชื่อพนักงาน' }); return }
-    if (!form.date_start || !form.date_end) { setResult({ success: false, message: 'กรุณาเลือกวันที่' }); return }
-    if (form.date_end < form.date_start) { setResult({ success: false, message: 'วันสิ้นสุดต้องไม่ก่อนวันเริ่มต้น' }); return }
+    if (form.leave_unit === 'hour') {
+      if (!form.date_start) { setResult({ success: false, message: 'กรุณาเลือกวันที่' }); return }
+      if (!form.start_time || !form.end_time) { setResult({ success: false, message: 'กรุณาระบุเวลาเริ่มและเวลาสิ้นสุด' }); return }
+      if (hourCount == null || hourCount <= 0) { setResult({ success: false, message: 'เวลาสิ้นสุดต้องหลังเวลาเริ่ม' }); return }
+    } else {
+      if (!form.date_start || !form.date_end) { setResult({ success: false, message: 'กรุณาเลือกวันที่' }); return }
+      if (form.date_end < form.date_start) { setResult({ success: false, message: 'วันสิ้นสุดต้องไม่ก่อนวันเริ่มต้น' }); return }
+    }
 
     setSubmitting(true)
     setResult(null)
@@ -126,25 +144,79 @@ export default function EmployeeLeavePage() {
             </div>
           </div>
 
-          {/* Date range */}
+          {/* Full-day or part-day */}
           <div className="bg-gray-900 rounded-2xl p-4 space-y-3">
-            <p className="font-semibold text-gray-200">วันที่ลา *</p>
+            <p className="font-semibold text-gray-200">รูปแบบการลา *</p>
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-gray-400 mb-1 block">วันเริ่มต้น</label>
-                <input type="date" min={today}
-                  className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2.5"
-                  value={form.date_start}
-                  onChange={e => setForm(f => ({ ...f, date_start: e.target.value, date_end: f.date_end < e.target.value ? e.target.value : f.date_end }))} />
-              </div>
-              <div>
-                <label className="text-xs text-gray-400 mb-1 block">วันสิ้นสุด</label>
-                <input type="date" min={form.date_start || today}
-                  className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2.5"
-                  value={form.date_end}
-                  onChange={e => setForm(f => ({ ...f, date_end: e.target.value }))} />
-              </div>
+              {([
+                { v: 'day', label: 'ลาเต็มวัน', hint: 'ระบุช่วงวันที่' },
+                { v: 'hour', label: 'ลาเป็นชั่วโมง', hint: 'ลาบางช่วงของวัน' },
+              ] as const).map(o => (
+                <button key={o.v} type="button"
+                  onClick={() => setForm(f => ({ ...f, leave_unit: o.v }))}
+                  className={`rounded-xl px-3 py-3 text-left border-2 transition-colors ${
+                    form.leave_unit === o.v ? 'border-orange-500 bg-orange-900/40' : 'border-gray-700 bg-gray-800'
+                  }`}>
+                  <p className="font-semibold text-sm">{o.label}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{o.hint}</p>
+                </button>
+              ))}
             </div>
+          </div>
+
+          {/* Dates / times */}
+          <div className="bg-gray-900 rounded-2xl p-4 space-y-3">
+            <p className="font-semibold text-gray-200">{form.leave_unit === 'hour' ? 'วันและเวลาที่ลา *' : 'วันที่ลา *'}</p>
+
+            {form.leave_unit === 'hour' ? (
+              <>
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">วันที่</label>
+                  <input type="date" min={today}
+                    className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2.5"
+                    value={form.date_start}
+                    onChange={e => setForm(f => ({ ...f, date_start: e.target.value, date_end: e.target.value }))} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">เวลาเริ่ม</label>
+                    <input type="time"
+                      className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2.5"
+                      value={form.start_time}
+                      onChange={e => setForm(f => ({ ...f, start_time: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">เวลาสิ้นสุด</label>
+                    <input type="time"
+                      className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2.5"
+                      value={form.end_time}
+                      onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))} />
+                  </div>
+                </div>
+                {hourCount != null && (
+                  <p className={`text-sm ${hourCount > 0 ? 'text-orange-300' : 'text-red-400'}`}>
+                    {hourCount > 0 ? `รวม ${hourCount} ชั่วโมง` : 'เวลาสิ้นสุดต้องหลังเวลาเริ่ม'}
+                  </p>
+                )}
+              </>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">วันเริ่มต้น</label>
+                  <input type="date" min={today}
+                    className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2.5"
+                    value={form.date_start}
+                    onChange={e => setForm(f => ({ ...f, date_start: e.target.value, date_end: f.date_end < e.target.value ? e.target.value : f.date_end }))} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">วันสิ้นสุด</label>
+                  <input type="date" min={form.date_start || today}
+                    className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2.5"
+                    value={form.date_end}
+                    onChange={e => setForm(f => ({ ...f, date_end: e.target.value }))} />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Reason */}

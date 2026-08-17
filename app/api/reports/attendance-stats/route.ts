@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
         WHERE date >= ? AND date <= ?
       `).bind(monthStart, monthEnd).all(),
       db.prepare(`
-        SELECT employee_id, date_start, date_end FROM leave_requests
+        SELECT employee_id, date_start, date_end, leave_unit, hours FROM leave_requests
         WHERE status = 'approved' AND date_start <= ? AND date_end >= ?
       `).bind(monthEnd, monthStart).all(),
     ])
@@ -53,8 +53,19 @@ export async function GET(request: NextRequest) {
     }
 
     // Set of leave dates (clipped to month) per employee
+    // Full-day leaves count as leave days; part-day leaves are tracked as hours
+    // and never turn a day into a leave day.
     const leaveDatesByEmp = new Map<string, Set<string>>()
+    const leaveHoursByEmp = new Map<string, number>()
+    const partialDatesByEmp = new Map<string, Set<string>>()
     for (const l of (leavesRes.results || []) as any[]) {
+      if (l.leave_unit === 'hour') {
+        leaveHoursByEmp.set(l.employee_id, (leaveHoursByEmp.get(l.employee_id) || 0) + (l.hours || 0))
+        const pset = partialDatesByEmp.get(l.employee_id) || new Set<string>()
+        pset.add(l.date_start)
+        partialDatesByEmp.set(l.employee_id, pset)
+        continue
+      }
       const start = l.date_start < monthStart ? monthStart : l.date_start
       const end = l.date_end > monthEnd ? monthEnd : l.date_end
       const set = leaveDatesByEmp.get(l.employee_id) || new Set<string>()
@@ -77,7 +88,8 @@ export async function GET(request: NextRequest) {
       if (employeeId && emp.id !== employeeId) continue
 
       const attMap = attendanceByEmp.get(emp.id) || new Map()
-      const leaveSet = leaveDatesByEmp.get(emp.id) || new Set()
+      const leaveSet = leaveDatesByEmp.get(emp.id) || new Set<string>()
+      const partialSet = partialDatesByEmp.get(emp.id) || new Set<string>()
 
       let present = 0, late = 0, absentRecorded = 0
       attMap.forEach((status: string) => {
@@ -97,7 +109,7 @@ export async function GET(request: NextRequest) {
         for (let day = 1; day <= lastDay; day++) {
           const dateStr = `${month}-${String(day).padStart(2, '0')}`
           if (!workDays.includes(new Date(yearNum, monthNum - 1, day).getDay())) continue
-          if (attMap.has(dateStr) || leaveSet.has(dateStr)) continue
+          if (attMap.has(dateStr) || leaveSet.has(dateStr) || partialSet.has(dateStr)) continue
           absentMissing++
         }
       }
@@ -110,6 +122,7 @@ export async function GET(request: NextRequest) {
         present,
         late,
         leave: leaveSet.size,
+        leave_hours: Math.round((leaveHoursByEmp.get(emp.id) || 0) * 100) / 100,
         absent: absentRecorded + absentMissing,
       })
     }
