@@ -42,7 +42,9 @@ export async function GET(request: NextRequest) {
       `).bind(monthStart, monthEnd).all(),
       db.prepare(`
         SELECT employee_id, date_start, date_end, leave_unit, hours FROM leave_requests
-        WHERE status = 'approved' AND date_start <= ? AND date_end >= ?
+        WHERE status = 'approved'
+          AND date_start <= ?
+          AND MAX(COALESCE(NULLIF(date_end, ''), date_start), date_start) >= ?
       `).bind(monthEnd, monthStart).all(),
     ])
 
@@ -66,8 +68,10 @@ export async function GET(request: NextRequest) {
         partialDatesByEmp.set(l.employee_id, pset)
         continue
       }
+      // A blank or reversed date_end would otherwise drop the leave entirely
+      const rawEnd = l.date_end && l.date_end >= l.date_start ? l.date_end : l.date_start
       const start = l.date_start < monthStart ? monthStart : l.date_start
-      const end = l.date_end > monthEnd ? monthEnd : l.date_end
+      const end = rawEnd > monthEnd ? monthEnd : rawEnd
       const set = leaveDatesByEmp.get(l.employee_id) || new Set<string>()
       const d = new Date(start + 'T00:00:00')
       const endD = new Date(end + 'T00:00:00')

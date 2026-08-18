@@ -105,13 +105,18 @@ export async function POST(request: NextRequest) {
       .bind(employee_id).first() as any
     if (!employee) return Response.json({ error: 'ไม่พบข้อมูลพนักงาน' }, { status: 404 })
 
+    // Normalise the range: a blank or reversed end date would make the leave
+    // invisible to the reports, so store it as a single-day leave instead.
+    const effectiveEnd = leave_unit === 'hour' || !date_end || date_end < date_start
+      ? date_start
+      : date_end
+
     const id = generateId()
     await env.DB.prepare(`
       INSERT INTO leave_requests (id, employee_id, date_start, date_end, leave_type, reason, leave_unit, start_time, end_time, hours)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
-      id, employee_id, date_start,
-      leave_unit === 'hour' ? date_start : date_end,
+      id, employee_id, date_start, effectiveEnd,
       leave_type, reason || null,
       leave_unit,
       leave_unit === 'hour' ? start_time : null,

@@ -48,7 +48,9 @@ export async function GET(request: NextRequest) {
       `).bind(employeeId, monthStart, monthEnd).all(),
       db.prepare(`
         SELECT date_start, date_end, leave_type, reason, leave_unit, start_time, end_time, hours FROM leave_requests
-        WHERE employee_id = ? AND status = 'approved' AND date_start <= ? AND date_end >= ?
+        WHERE employee_id = ? AND status = 'approved'
+          AND date_start <= ?
+          AND MAX(COALESCE(NULLIF(date_end, ''), date_start), date_start) >= ?
       `).bind(employeeId, monthEnd, monthStart).all(),
     ])
 
@@ -57,8 +59,10 @@ export async function GET(request: NextRequest) {
 
     const leaveMap = new Map<string, { leave_type: string; reason: string | null; leave_unit?: string; start_time?: string; end_time?: string; hours?: number }>()
     for (const l of (leavesRes.results || []) as any[]) {
+      // A blank or reversed date_end would otherwise drop the leave entirely
+      const rawEnd = l.date_end && l.date_end >= l.date_start ? l.date_end : l.date_start
       const start = l.date_start < monthStart ? monthStart : l.date_start
-      const end = l.date_end > monthEnd ? monthEnd : l.date_end
+      const end = rawEnd > monthEnd ? monthEnd : rawEnd
       const d = new Date(start + 'T00:00:00')
       const endD = new Date(end + 'T00:00:00')
       while (d <= endD) {
