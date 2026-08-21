@@ -3,7 +3,7 @@
 export const runtime = 'edge'
 
 import { useEffect, useState, useCallback } from 'react'
-import { getTodayString, formatCurrency, getEmployeeTypeLabel, getPayrollStatusLabel } from '@/lib/utils'
+import { getTodayString, formatCurrency, getEmployeeTypeLabel, getPayrollStatusLabel, getAuthHeaders, getAdminRole } from '@/lib/utils'
 import EmployeeTypeTag from '@/components/EmployeeTypeTag'
 
 interface PayrollRecord {
@@ -25,6 +25,7 @@ interface PayrollRecord {
   status: string
   notes: string | null
   created_at: string
+  created_by: string | null
   original_total_pay: number | null
   edited_at: string | null
   edited_by: string | null
@@ -106,6 +107,11 @@ export default function PayrollPage() {
   const [editForm, setEditForm] = useState<EditForm | null>(null)
   const [editManualTotal, setEditManualTotal] = useState(false)
   const [savingEdit, setSavingEdit] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [showAllUsers, setShowAllUsers] = useState(false)
+  const [role, setRole] = useState('')
+
+  useEffect(() => { setRole(getAdminRole()) }, [])
 
   const patchCalc = (patch: Partial<CalcResult['calculation']>) => {
     setCalcEdit(prev => {
@@ -150,7 +156,7 @@ export default function PayrollPage() {
     try {
       const res = await fetch('/api/payroll', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({ id: editingId, ...editForm }),
       })
       if (res.ok) {
@@ -171,13 +177,13 @@ export default function PayrollPage() {
   const fetchPayroll = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch('/api/payroll')
+      const res = await fetch(`/api/payroll${showAllUsers ? '?all=1' : ''}`, { headers: getAuthHeaders() })
       const data = await res.json() as any
       setPayrollList(data.payroll || [])
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [showAllUsers])
 
   useEffect(() => {
     fetchPayroll()
@@ -228,7 +234,7 @@ export default function PayrollPage() {
     try {
       const res = await fetch('/api/payroll', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
           employee_id: calcResult.employee.id,
           period_start: periodStart,
@@ -256,10 +262,28 @@ export default function PayrollPage() {
   const handleUpdateStatus = async (id: string, status: string) => {
     await fetch('/api/payroll', {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify({ id, status }),
     })
     fetchPayroll()
+  }
+
+  const handleDelete = async (p: PayrollRecord) => {
+    if (!confirm(`ลบรายการเงินเดือนของ ${p.employee_name}\nงวด ${p.period_start} ถึง ${p.period_end}?\n\nการลบไม่สามารถกู้คืนได้`)) return
+    setDeletingId(p.id)
+    try {
+      const res = await fetch(`/api/payroll?id=${p.id}`, { method: 'DELETE', headers: getAuthHeaders() })
+      if (res.ok) {
+        setPayrollList(prev => prev.filter(x => x.id !== p.id))
+      } else {
+        const d = await res.json().catch(() => ({})) as any
+        alert(d.error || 'ลบไม่สำเร็จ')
+      }
+    } catch {
+      alert('เชื่อมต่อไม่สำเร็จ')
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   const exportCSV = () => {
@@ -506,8 +530,20 @@ export default function PayrollPage() {
       </div>
 
       <div className="card p-0 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100">
-          <h2 className="font-semibold text-gray-900">รายการเงินเดือน</h2>
+        <div className="px-6 py-4 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-gray-900">รายการเงินเดือน</h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {showAllUsers ? 'กำลังดูรายการของผู้ใช้ทุกคน' : 'แสดงเฉพาะรายการที่บัญชีนี้สร้าง'}
+            </p>
+          </div>
+          {role === 'superadmin' && (
+            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+              <input type="checkbox" className="w-4 h-4 accent-blue-600"
+                checked={showAllUsers} onChange={e => setShowAllUsers(e.target.checked)} />
+              ดูรายการของทุกผู้ใช้
+            </label>
+          )}
         </div>
 
         {loading ? (
@@ -636,7 +672,14 @@ export default function PayrollPage() {
                   </tr>
                 ) : (
                   <tr key={p.id} className="hover:bg-gray-50">
-                    <td className="table-cell font-medium">{p.employee_name}</td>
+                    <td className="table-cell font-medium">
+                      {p.employee_name}
+                      {showAllUsers && (
+                        <span className="block text-[11px] font-normal text-gray-400">
+                          สร้างโดย {p.created_by || '—'}
+                        </span>
+                      )}
+                    </td>
                     <td className="table-cell">
                       <EmployeeTypeTag type={p.employee_type} />
                     </td>
@@ -697,6 +740,13 @@ export default function PayrollPage() {
                             จ่ายแล้ว
                           </button>
                         )}
+                        <button
+                          onClick={() => handleDelete(p)}
+                          disabled={deletingId === p.id}
+                          className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50 font-medium"
+                        >
+                          {deletingId === p.id ? 'กำลังลบ...' : 'ลบ'}
+                        </button>
                       </div>
                     </td>
                   </tr>

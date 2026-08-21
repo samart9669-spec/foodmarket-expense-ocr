@@ -164,6 +164,10 @@ export async function runMigrations(db: any): Promise<string[]> {
   await run('ALTER TABLE payroll ADD COLUMN edited_at TEXT', 'payroll.edited_at')
   await run('ALTER TABLE payroll ADD COLUMN edited_by TEXT', 'payroll.edited_by')
 
+  // Payroll records belong to the admin account that created them, so each
+  // login only works with its own list.
+  await run('ALTER TABLE payroll ADD COLUMN created_by TEXT', 'payroll.created_by')
+
   // The original admin_users CHECK constraint predates the 'approver' role, so
   // rebuild the table once to accept it. Existing rows are copied across.
   try {
