@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
   try {
     const [empResult, attResult, settingsResult, shiftsResult] = await Promise.all([
       db.prepare(`
-        SELECT e.id, e.name, e.daily_rate, e.employee_type,
+        SELECT e.id, e.name, e.daily_rate, e.employee_type, e.salary_type,
                s.id as shift_id, s.name as shift_name,
                s.start_time as shift_start, s.end_time as shift_end,
                s.regular_hours, s.break_minutes

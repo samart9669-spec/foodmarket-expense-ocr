@@ -74,8 +74,22 @@ export function calculateHoursWorked(checkIn: string, checkOut: string): number 
   return Math.max(0, (outTime.getTime() - inTime.getTime()) / 3600000)
 }
 
+/**
+ * OT is paid in whole 30-minute blocks: anything short of half an hour is not
+ * paid, and a part-block is rounded down (1h20m OT pays 1h, not 1h20m).
+ */
+export function roundOTToHalfHour(hours: number): number {
+  if (!hours || hours <= 0) return 0
+  return Math.floor(hours * 2) / 2
+}
+
+/** OT applies to daily-rate staff only — monthly salaries already cover it. */
+export function isOTEligible(salaryType: string | null | undefined): boolean {
+  return (salaryType || 'daily') !== 'monthly'
+}
+
 export function calculateOTHours(totalHours: number, regularHours: number = 8): number {
-  return Math.max(0, totalHours - regularHours)
+  return roundOTToHalfHour(Math.max(0, totalHours - regularHours))
 }
 
 export interface PayrollCalculation {
@@ -93,7 +107,7 @@ export interface PayrollCalculation {
 export function calculatePayroll(
   attendanceRecords: Array<{ regular_hours: number; ot_hours: number; status: string }>,
   salesRecords: Array<{ amount: number }>,
-  employee: { daily_rate: number; ot_rate: number; commission_rate: number },
+  employee: { daily_rate: number; ot_rate: number; commission_rate: number; salary_type?: string },
   bonus: number = 0,
   deductions: number = 0
 ): PayrollCalculation {
@@ -103,7 +117,10 @@ export function calculatePayroll(
     if (a.status === 'present' || a.status === 'late') return sum + employee.daily_rate
     return sum
   }, 0)
-  const ot_hours_total = attendanceRecords.reduce((sum, a) => sum + (a.ot_hours || 0), 0)
+  // Monthly staff earn no OT; daily staff are paid in 30-minute blocks
+  const ot_hours_total = isOTEligible(employee.salary_type)
+    ? roundOTToHalfHour(attendanceRecords.reduce((sum, a) => sum + (a.ot_hours || 0), 0))
+    : 0
   const ot_total = ot_hours_total * employee.ot_rate
   const sales_total = salesRecords.reduce((sum, s) => sum + s.amount, 0)
   const commission_total = sales_total * ((employee.commission_rate || 0) / 100)

@@ -36,6 +36,9 @@ export async function POST(request: NextRequest) {
     // check-in is validated against the attached offsite coordinates instead.
     const offsite = await getApprovedOffsite(db, employee_id, today)
 
+    // Branch used for both the location check and the default shift
+    const targetPointId = sales_point_id || employee.sales_point_id || null
+
     // GPS validation — offsite location when approved; otherwise the selected
     // branch, falling back to the employee's primary branch, then head office.
     // Skipped only when the resolved place has no GPS configured.
@@ -46,7 +49,7 @@ export async function POST(request: NextRequest) {
           longitude: offsite.longitude,
           radius: offsite.radius_meters || 300,
         }
-      : await getGeoTarget(db, sales_point_id || employee.sales_point_id || null)
+      : await getGeoTarget(db, targetPointId)
     const geoError = validateGeoPosition(geoTarget, latitude, longitude)
     if (geoError) return Response.json(geoError, { status: 422 })
     const checkInTime = getBangkokDateTimeString()
@@ -67,9 +70,19 @@ export async function POST(request: NextRequest) {
       await db.prepare('UPDATE attendance SET check_in=?, check_in_method=?, check_in_lat=?, check_in_lng=?, approved=MAX(COALESCE(approved,0), ?), offsite_request_id=COALESCE(?, offsite_request_id) WHERE id=?')
         .bind(checkInTime, method, latitude ?? null, longitude ?? null, autoApprove, offsite?.id ?? null, existing.id).run()
     } else {
+      // Fall back to the branch's default shift when none was chosen
+      let effectiveShiftId: string | null = shift_id || null
+      if (!effectiveShiftId && targetPointId) {
+        try {
+          const branch = await db.prepare('SELECT default_shift_id FROM sales_points WHERE id = ?')
+            .bind(targetPointId).first() as any
+          if (branch?.default_shift_id) effectiveShiftId = branch.default_shift_id
+        } catch {}
+      }
+
       let status = 'present'
-      if (shift_id) {
-        const shift = await db.prepare('SELECT * FROM shifts WHERE id = ?').bind(shift_id).first() as any
+      if (effectiveShiftId) {
+        const shift = await db.prepare('SELECT * FROM shifts WHERE id = ?').bind(effectiveShiftId).first() as any
         if (shift) {
           const [h, m] = shift.start_time.split(':').map(Number)
           if (nowMinutes > h * 60 + m + 15) status = 'late'
@@ -83,7 +96,7 @@ export async function POST(request: NextRequest) {
       await db.prepare(`
         INSERT INTO attendance (id, employee_id, date, shift_id, check_in, check_in_method, sales_point_id, status, check_in_lat, check_in_lng, approved, offsite_request_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(id, employee_id, today, shift_id || null, checkInTime, method, sales_point_id || null, status, latitude ?? null, longitude ?? null, autoApprove, offsite?.id ?? null).run()
+      `).bind(id, employee_id, today, effectiveShiftId, checkInTime, method, sales_point_id || null, status, latitude ?? null, longitude ?? null, autoApprove, offsite?.id ?? null).run()
     }
 
     return Response.json({

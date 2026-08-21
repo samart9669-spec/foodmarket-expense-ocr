@@ -1,5 +1,5 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
-import { getTodayString, calculateHoursWorked, calculateOTHours, getBangkokDateTimeString, getBangkokMinutesOfDay } from '@/lib/utils'
+import { getTodayString, calculateHoursWorked, calculateOTHours, getBangkokDateTimeString, getBangkokMinutesOfDay, isOTEligible } from '@/lib/utils'
 import { getGeoTarget, validateGeoPosition } from '@/lib/geo'
 import { isOfficeEmployee } from '@/lib/auth-server'
 import { ensureAttendanceApprovedColumn, ensureAttendanceStatusColumns, getApprovedOffsite } from '@/lib/db-tables'
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     const employee = await db
       .prepare('SELECT * FROM employees WHERE id = ? AND is_active = 1')
       .bind(employee_id)
-      .first() as { id: string; name: string; employee_type: string; sales_point_id: string | null; job_title: string | null } | null
+      .first() as { id: string; name: string; employee_type: string; sales_point_id: string | null; job_title: string | null; salary_type: string | null } | null
 
     if (!employee) {
       return Response.json({ error: 'ไม่พบข้อมูลพนักงาน' }, { status: 404 })
@@ -81,7 +81,8 @@ export async function POST(request: NextRequest) {
 
     const totalHours = calculateHoursWorked(existing.check_in, checkOutTime)
     const regularHours = Math.min(totalHours, 8)
-    const otHours = calculateOTHours(totalHours)
+    // OT: daily-rate staff only, paid in whole 30-minute blocks
+    const otHours = isOTEligible((employee as any).salary_type) ? calculateOTHours(totalHours) : 0
 
     // ออกก่อนเวลา: checkout before the scheduled end time (shift end or the
     // employee's fixed work_end)

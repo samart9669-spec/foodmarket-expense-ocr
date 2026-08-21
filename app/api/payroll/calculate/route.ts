@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     }
 
     const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(employee_id).first() as {
-      id: string; name: string; employee_type: string;
+      id: string; name: string; employee_type: string; salary_type: string | null;
       daily_rate: number; ot_rate: number; commission_rate: number
     } | null
 
@@ -47,10 +47,17 @@ export async function POST(request: NextRequest) {
 
     const salesRecords = salesResult.results as Array<{ amount: number }>
 
-    const calculation = calculatePayroll(attendanceRecords, salesRecords, employee, bonus, deductions)
+    const calculation = calculatePayroll(
+      attendanceRecords,
+      salesRecords,
+      { ...employee, salary_type: employee.salary_type || 'daily' },
+      bonus,
+      deductions,
+    )
 
     return Response.json({
       employee: { id: employee.id, name: employee.name, employee_type: employee.employee_type,
+        salary_type: employee.salary_type || 'daily',
         daily_rate: employee.daily_rate, ot_rate: employee.ot_rate, commission_rate: employee.commission_rate },
       period_start, period_end,
       attendance_count: attendanceRecords.length,

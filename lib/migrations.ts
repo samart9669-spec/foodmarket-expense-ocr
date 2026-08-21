@@ -23,6 +23,10 @@ export async function runMigrations(db: any): Promise<string[]> {
   await run('ALTER TABLE sales_points ADD COLUMN longitude REAL', 'sales_points.longitude')
   await run('ALTER TABLE sales_points ADD COLUMN radius_meters INTEGER DEFAULT 200', 'sales_points.radius_meters')
 
+  // Default shift for a branch — staff there follow it unless the daily
+  // approval screen overrides the shift for a particular day.
+  await run('ALTER TABLE sales_points ADD COLUMN default_shift_id TEXT', 'sales_points.default_shift_id')
+
   // GPS columns on attendance
   await run('ALTER TABLE attendance ADD COLUMN check_in_lat REAL', 'attendance.check_in_lat')
   await run('ALTER TABLE attendance ADD COLUMN check_in_lng REAL', 'attendance.check_in_lng')

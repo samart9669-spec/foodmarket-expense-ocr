@@ -4,7 +4,7 @@ export const runtime = 'edge'
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { getAuthHeaders } from '@/lib/utils'
+import { getAuthHeaders, roundOTToHalfHour, isOTEligible } from '@/lib/utils'
 
 interface ShiftInfo {
   id: string; name: string; start_time: string; end_time: string
@@ -16,6 +16,7 @@ interface AttendanceRow {
   employee_id: string
   name: string
   daily_rate: number
+  salary_type: string
   shift_id: string | null
   shift_name: string | null
   shift_start: string | null
@@ -75,7 +76,10 @@ function computeRow(row: AttendanceRow, settings: Record<string, string>): Atten
     ? Math.max(0, calcMinutesDiff(row.shift_start, row.check_in))
     : 0
   const regularHours = row.regular_hours_shift || 8
-  const ot_hours = Math.max(0, actual_hours - regularHours)
+  // OT: daily-rate staff only, counted in whole 30-minute blocks
+  const ot_hours = isOTEligible(row.salary_type)
+    ? roundOTToHalfHour(Math.max(0, actual_hours - regularHours))
+    : 0
 
   const dayTypeObj = DAY_TYPES.find(d => d.value === row.day_type)
   let multiplier = 1
@@ -137,6 +141,7 @@ export default function DailyApprovalPage() {
           employee_id: emp.id,
           name: emp.name,
           daily_rate: emp.daily_rate || 0,
+          salary_type: emp.salary_type || 'daily',
           shift_id: emp.shift_id || defaultShift?.id || null,
           shift_name: emp.shift_name || defaultShift?.name || '',
           shift_start: shiftStart,

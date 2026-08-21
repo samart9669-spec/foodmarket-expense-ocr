@@ -4,9 +4,19 @@ import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
 
+// Older databases predate the branch default shift
+async function ensureDefaultShiftColumn(db: any) {
+  try {
+    await db.prepare('ALTER TABLE sales_points ADD COLUMN default_shift_id TEXT').run()
+  } catch {
+    // duplicate column — already present
+  }
+}
+
 export async function GET() {
   try {
     const { env } = getRequestContext()
+    await ensureDefaultShiftColumn(env.DB)
     const result = await env.DB.prepare('SELECT * FROM sales_points ORDER BY id ASC').all()
     return Response.json({ salesPoints: result.results })
   } catch (error) {
@@ -18,13 +28,14 @@ export async function POST(request: NextRequest) {
   try {
     const { env } = getRequestContext()
     const body = await request.json() as any
-    const { name, location, latitude, longitude, radius_meters } = body
+    const { name, location, latitude, longitude, radius_meters, default_shift_id } = body
     if (!name) return Response.json({ error: 'กรุณากรอกชื่อสาขา' }, { status: 400 })
+    await ensureDefaultShiftColumn(env.DB)
     const id = `sp-${generateId()}`
     await env.DB.prepare(
-      'INSERT INTO sales_points (id, name, location, latitude, longitude, radius_meters) VALUES (?, ?, ?, ?, ?, ?)'
-    ).bind(id, name, location || null, latitude || null, longitude || null, radius_meters || 200).run()
-    return Response.json({ id, name, location, latitude, longitude, radius_meters })
+      'INSERT INTO sales_points (id, name, location, latitude, longitude, radius_meters, default_shift_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).bind(id, name, location || null, latitude || null, longitude || null, radius_meters || 200, default_shift_id || null).run()
+    return Response.json({ id, name, location, latitude, longitude, radius_meters, default_shift_id })
   } catch (error) {
     return Response.json({ error: 'เกิดข้อผิดพลาด' }, { status: 500 })
   }
@@ -34,11 +45,12 @@ export async function PUT(request: NextRequest) {
   try {
     const { env } = getRequestContext()
     const body = await request.json() as any
-    const { id, name, location, latitude, longitude, radius_meters } = body
+    const { id, name, location, latitude, longitude, radius_meters, default_shift_id } = body
     if (!id || !name) return Response.json({ error: 'ข้อมูลไม่ครบ' }, { status: 400 })
+    await ensureDefaultShiftColumn(env.DB)
     await env.DB.prepare(
-      'UPDATE sales_points SET name=?, location=?, latitude=?, longitude=?, radius_meters=? WHERE id=?'
-    ).bind(name, location || null, latitude || null, longitude || null, radius_meters || 200, id).run()
+      'UPDATE sales_points SET name=?, location=?, latitude=?, longitude=?, radius_meters=?, default_shift_id=? WHERE id=?'
+    ).bind(name, location || null, latitude || null, longitude || null, radius_meters || 200, default_shift_id || null, id).run()
     return Response.json({ success: true })
   } catch (error) {
     return Response.json({ error: 'เกิดข้อผิดพลาด' }, { status: 500 })

@@ -11,7 +11,10 @@ interface Branch {
   latitude: number | null
   longitude: number | null
   radius_meters: number
+  default_shift_id: string | null
 }
+
+interface Shift { id: string; name: string; start_time: string; end_time: string }
 
 const DEFAULT_RADIUS = 200
 
@@ -22,7 +25,8 @@ export default function BranchesPage() {
   const [creating, setCreating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
-  const [form, setForm] = useState({ name: '', location: '', latitude: '', longitude: '', radius_meters: String(DEFAULT_RADIUS) })
+  const [form, setForm] = useState({ name: '', location: '', latitude: '', longitude: '', radius_meters: String(DEFAULT_RADIUS), default_shift_id: '' })
+  const [shifts, setShifts] = useState<Shift[]>([])
   const [gpsLoading, setGpsLoading] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
@@ -61,7 +65,11 @@ export default function BranchesPage() {
       .catch(() => setHqLoaded(true))
   }
 
-  useEffect(() => { fetchBranches(); fetchHeadOffice() }, [])
+  useEffect(() => {
+    fetchBranches()
+    fetchHeadOffice()
+    fetch('/api/shifts').then(r => r.json()).then((d: any) => setShifts(d.shifts || [])).catch(() => {})
+  }, [])
 
   const getHqGps = () => {
     if (!navigator.geolocation) { showToast('เบราว์เซอร์ไม่รองรับ GPS'); return }
@@ -101,7 +109,7 @@ export default function BranchesPage() {
     }
   }
 
-  const resetForm = () => setForm({ name: '', location: '', latitude: '', longitude: '', radius_meters: String(DEFAULT_RADIUS) })
+  const resetForm = () => setForm({ name: '', location: '', latitude: '', longitude: '', radius_meters: String(DEFAULT_RADIUS), default_shift_id: '' })
 
   const startCreate = () => {
     resetForm()
@@ -118,6 +126,7 @@ export default function BranchesPage() {
       latitude: b.latitude != null ? String(b.latitude) : '',
       longitude: b.longitude != null ? String(b.longitude) : '',
       radius_meters: String(b.radius_meters || DEFAULT_RADIUS),
+      default_shift_id: b.default_shift_id || '',
     })
   }
 
@@ -145,6 +154,7 @@ export default function BranchesPage() {
         latitude: form.latitude ? parseFloat(form.latitude) : null,
         longitude: form.longitude ? parseFloat(form.longitude) : null,
         radius_meters: parseInt(form.radius_meters) || DEFAULT_RADIUS,
+        default_shift_id: form.default_shift_id || null,
       }
       const res = await fetch('/api/sales-points', {
         method: editing ? 'PUT' : 'POST',
@@ -328,6 +338,23 @@ export default function BranchesPage() {
             </div>
           </div>
 
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">กะงานหลักของสาขา</label>
+            <select
+              className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2"
+              value={form.default_shift_id}
+              onChange={e => setForm(f => ({ ...f, default_shift_id: e.target.value }))}
+            >
+              <option value="">— ยังไม่กำหนด —</option>
+              {shifts.map(sh => (
+                <option key={sh.id} value={sh.id}>{sh.name} ({sh.start_time}–{sh.end_time})</option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              พนักงานที่สาขานี้จะใช้กะนี้เป็นค่าเริ่มต้น — ถ้าวันไหนเข้ากะพิเศษ ให้แก้ที่หน้าอนุมัติเวลางานรายวัน
+            </p>
+          </div>
+
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-sm text-gray-400">พิกัด GPS (สำหรับยืนยันตำแหน่งเช็คอิน)</label>
@@ -405,6 +432,12 @@ export default function BranchesPage() {
                 <div>
                   <p className="font-semibold text-gray-100 text-lg">{b.name}</p>
                   {b.location && <p className="text-gray-400 text-sm mt-0.5">{b.location}</p>}
+                  {(() => {
+                    const sh = shifts.find(x => x.id === b.default_shift_id)
+                    return sh
+                      ? <p className="text-blue-300 text-xs mt-1">กะหลัก: {sh.name} ({sh.start_time}–{sh.end_time})</p>
+                      : <p className="text-gray-500 text-xs mt-1">ยังไม่กำหนดกะหลัก</p>
+                  })()}
                 </div>
                 <div className="flex gap-2">
                   <button onClick={() => startEdit(b)} className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
