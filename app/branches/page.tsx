@@ -12,6 +12,7 @@ interface Branch {
   longitude: number | null
   radius_meters: number
   default_shift_id: string | null
+  incentive_rate: number | null
 }
 
 interface Shift { id: string; name: string; start_time: string; end_time: string }
@@ -25,7 +26,7 @@ export default function BranchesPage() {
   const [creating, setCreating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
-  const [form, setForm] = useState({ name: '', location: '', latitude: '', longitude: '', radius_meters: String(DEFAULT_RADIUS), default_shift_id: '' })
+  const [form, setForm] = useState({ name: '', location: '', latitude: '', longitude: '', radius_meters: String(DEFAULT_RADIUS), default_shift_id: '', incentive_rate: '0' })
   const [shifts, setShifts] = useState<Shift[]>([])
   const [gpsLoading, setGpsLoading] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
@@ -109,7 +110,7 @@ export default function BranchesPage() {
     }
   }
 
-  const resetForm = () => setForm({ name: '', location: '', latitude: '', longitude: '', radius_meters: String(DEFAULT_RADIUS), default_shift_id: '' })
+  const resetForm = () => setForm({ name: '', location: '', latitude: '', longitude: '', radius_meters: String(DEFAULT_RADIUS), default_shift_id: '', incentive_rate: '0' })
 
   const startCreate = () => {
     resetForm()
@@ -127,6 +128,7 @@ export default function BranchesPage() {
       longitude: b.longitude != null ? String(b.longitude) : '',
       radius_meters: String(b.radius_meters || DEFAULT_RADIUS),
       default_shift_id: b.default_shift_id || '',
+      incentive_rate: String(b.incentive_rate ?? 0),
     })
   }
 
@@ -155,6 +157,7 @@ export default function BranchesPage() {
         longitude: form.longitude ? parseFloat(form.longitude) : null,
         radius_meters: parseInt(form.radius_meters) || DEFAULT_RADIUS,
         default_shift_id: form.default_shift_id || null,
+        incentive_rate: parseFloat(form.incentive_rate) || 0,
       }
       const res = await fetch('/api/sales-points', {
         method: editing ? 'PUT' : 'POST',
@@ -355,6 +358,19 @@ export default function BranchesPage() {
             </p>
           </div>
 
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">อัตรา Incentive จากยอดขายสาขา (%)</label>
+            <input
+              type="number" min="0" step="any"
+              className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2"
+              value={form.incentive_rate}
+              onChange={e => setForm(f => ({ ...f, incentive_rate: e.target.value }))}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              พนักงานที่ทำงานสาขานี้ในงวดจะได้ incentive = ยอดขายรวมของสาขา × เปอร์เซ็นต์นี้ (0 = ไม่จ่าย)
+            </p>
+          </div>
+
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-sm text-gray-400">พิกัด GPS (สำหรับยืนยันตำแหน่งเช็คอิน)</label>
@@ -438,6 +454,9 @@ export default function BranchesPage() {
                       ? <p className="text-blue-300 text-xs mt-1">กะหลัก: {sh.name} ({sh.start_time}–{sh.end_time})</p>
                       : <p className="text-gray-500 text-xs mt-1">ยังไม่กำหนดกะหลัก</p>
                   })()}
+                  {(b.incentive_rate ?? 0) > 0 && (
+                    <p className="text-emerald-300 text-xs mt-0.5">Incentive: {b.incentive_rate}% ของยอดขายสาขา</p>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <button onClick={() => startEdit(b)} className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">

@@ -3,6 +3,7 @@ import { generateId, getTodayString, getBangkokDateTimeString, getBangkokMinutes
 import { getGeoTarget, validateGeoPosition } from '@/lib/geo'
 import { isOfficeEmployee } from '@/lib/auth-server'
 import { ensureAttendanceApprovedColumn, ensureAttendanceStatusColumns, getApprovedOffsite } from '@/lib/db-tables'
+import { graceMinutesFor } from '@/lib/diligence'
 import { APP_VERSION } from '@/lib/version'
 import { NextRequest } from 'next/server'
 
@@ -80,17 +81,23 @@ export async function POST(request: NextRequest) {
         } catch {}
       }
 
+      // Grace before counting as late is configured per department
+      const settingsRes = await db.prepare('SELECT key, value FROM payroll_settings').all()
+      const settings: Record<string, string> = {}
+      for (const row of (settingsRes.results || []) as any[]) settings[row.key] = row.value
+      const grace = graceMinutesFor(employee, settings)
+
       let status = 'present'
       if (effectiveShiftId) {
         const shift = await db.prepare('SELECT * FROM shifts WHERE id = ?').bind(effectiveShiftId).first() as any
         if (shift) {
           const [h, m] = shift.start_time.split(':').map(Number)
-          if (nowMinutes > h * 60 + m + 15) status = 'late'
+          if (nowMinutes > h * 60 + m + grace) status = 'late'
         }
       } else if (employee.work_start) {
-        // No shift — fixed personal schedule (e.g. head office 08:00-18:00), 15-min grace
+        // No shift — fixed personal schedule (e.g. head office 08:00-18:00)
         const [h, m] = String(employee.work_start).split(':').map(Number)
-        if (!Number.isNaN(h) && nowMinutes > h * 60 + (m || 0) + 15) status = 'late'
+        if (!Number.isNaN(h) && nowMinutes > h * 60 + (m || 0) + grace) status = 'late'
       }
       const id = generateId()
       await db.prepare(`

@@ -111,6 +111,24 @@ export async function runMigrations(db: any): Promise<string[]> {
     ('uniform_deposit', '0', 'ค่ามัดจำเครื่องแบบ', 'deduction', '฿')
   `, 'payroll_settings seed')
 
+  // เบี้ยขยัน: grace period before a check-in counts as late, set per
+  // department, plus the amount forfeited and how often it is applied.
+  await run(`INSERT OR IGNORE INTO payroll_settings (key, value, label, category, unit) VALUES
+    ('late_grace_sales', '15', 'สายเมื่อเกิน (หน้าร้าน)', 'diligence', 'นาที'),
+    ('late_grace_kitchen', '15', 'สายเมื่อเกิน (ครัวกลาง)', 'diligence', 'นาที'),
+    ('late_grace_office', '15', 'สายเมื่อเกิน (ออฟฟิศ)', 'diligence', 'นาที'),
+    ('diligence_deduction', '500', 'ยอดหักเบี้ยขยันเมื่อมาสาย', 'diligence', '฿'),
+    ('diligence_deduct_mode', 'period', 'รอบหัก: period = หักครั้งเดียวต่อรอบจ่าย, incident = หักทุกครั้งที่สาย', 'diligence', '')
+  `, 'diligence settings seed')
+
+  // Branch incentive rate (% of that branch's sales in the period)
+  await run('ALTER TABLE sales_points ADD COLUMN incentive_rate REAL DEFAULT 0', 'sales_points.incentive_rate')
+
+  // Payroll breakdown for the new components
+  await run('ALTER TABLE payroll ADD COLUMN incentive_total REAL DEFAULT 0', 'payroll.incentive_total')
+  await run('ALTER TABLE payroll ADD COLUMN late_days INTEGER DEFAULT 0', 'payroll.late_days')
+  await run('ALTER TABLE payroll ADD COLUMN diligence_deduction REAL DEFAULT 0', 'payroll.diligence_deduction')
+
   // General app settings (head office GPS, etc.)
   await run(`
     CREATE TABLE IF NOT EXISTS app_settings (

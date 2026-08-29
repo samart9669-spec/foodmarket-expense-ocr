@@ -11,6 +11,11 @@ async function ensureDefaultShiftColumn(db: any) {
   } catch {
     // duplicate column — already present
   }
+  try {
+    await db.prepare('ALTER TABLE sales_points ADD COLUMN incentive_rate REAL DEFAULT 0').run()
+  } catch {
+    // duplicate column — already present
+  }
 }
 
 export async function GET() {
@@ -28,13 +33,13 @@ export async function POST(request: NextRequest) {
   try {
     const { env } = getRequestContext()
     const body = await request.json() as any
-    const { name, location, latitude, longitude, radius_meters, default_shift_id } = body
+    const { name, location, latitude, longitude, radius_meters, default_shift_id, incentive_rate } = body
     if (!name) return Response.json({ error: 'กรุณากรอกชื่อสาขา' }, { status: 400 })
     await ensureDefaultShiftColumn(env.DB)
     const id = `sp-${generateId()}`
     await env.DB.prepare(
-      'INSERT INTO sales_points (id, name, location, latitude, longitude, radius_meters, default_shift_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).bind(id, name, location || null, latitude || null, longitude || null, radius_meters || 200, default_shift_id || null).run()
+      'INSERT INTO sales_points (id, name, location, latitude, longitude, radius_meters, default_shift_id, incentive_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).bind(id, name, location || null, latitude || null, longitude || null, radius_meters || 200, default_shift_id || null, incentive_rate || 0).run()
     return Response.json({ id, name, location, latitude, longitude, radius_meters, default_shift_id })
   } catch (error) {
     return Response.json({ error: 'เกิดข้อผิดพลาด' }, { status: 500 })
@@ -45,12 +50,12 @@ export async function PUT(request: NextRequest) {
   try {
     const { env } = getRequestContext()
     const body = await request.json() as any
-    const { id, name, location, latitude, longitude, radius_meters, default_shift_id } = body
+    const { id, name, location, latitude, longitude, radius_meters, default_shift_id, incentive_rate } = body
     if (!id || !name) return Response.json({ error: 'ข้อมูลไม่ครบ' }, { status: 400 })
     await ensureDefaultShiftColumn(env.DB)
     await env.DB.prepare(
-      'UPDATE sales_points SET name=?, location=?, latitude=?, longitude=?, radius_meters=?, default_shift_id=? WHERE id=?'
-    ).bind(name, location || null, latitude || null, longitude || null, radius_meters || 200, default_shift_id || null, id).run()
+      'UPDATE sales_points SET name=?, location=?, latitude=?, longitude=?, radius_meters=?, default_shift_id=?, incentive_rate=? WHERE id=?'
+    ).bind(name, location || null, latitude || null, longitude || null, radius_meters || 200, default_shift_id || null, incentive_rate || 0, id).run()
     return Response.json({ success: true })
   } catch (error) {
     return Response.json({ error: 'เกิดข้อผิดพลาด' }, { status: 500 })

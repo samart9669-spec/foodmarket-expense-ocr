@@ -21,6 +21,9 @@ interface PayrollRecord {
   commission_total: number
   bonus: number
   deductions: number
+  incentive_total: number
+  late_days: number
+  diligence_deduction: number
   total_pay: number
   status: string
   notes: string | null
@@ -40,13 +43,21 @@ interface EditForm {
   commission_total: number
   bonus: number
   deductions: number
+  incentive_total: number
+  diligence_deduction: number
   total_pay: number
   notes: string
 }
 
-/** รวมทั้งหมด = ค่าแรง + OT + คอมมิชชัน + โบนัส − รายการหัก */
-function sumTotal(f: { day_rate_total: number; ot_total: number; commission_total: number; bonus: number; deductions: number }): number {
-  return Math.round(((f.day_rate_total || 0) + (f.ot_total || 0) + (f.commission_total || 0) + (f.bonus || 0) - (f.deductions || 0)) * 100) / 100
+/** รวมทั้งหมด = ค่าแรง + OT + คอมมิชชัน + incentive + โบนัส − รายการหัก − เบี้ยขยันที่ถูกหัก */
+function sumTotal(f: {
+  day_rate_total: number; ot_total: number; commission_total: number
+  bonus: number; deductions: number
+  incentive_total?: number; diligence_deduction?: number
+}): number {
+  return Math.round(((f.day_rate_total || 0) + (f.ot_total || 0) + (f.commission_total || 0)
+    + (f.incentive_total || 0) + (f.bonus || 0)
+    - (f.deductions || 0) - (f.diligence_deduction || 0)) * 100) / 100
 }
 
 interface Employee {
@@ -76,8 +87,13 @@ interface CalcResult {
     commission_total: number
     bonus: number
     deductions: number
+    incentive_total: number
+    late_days: number
+    diligence_deduction: number
     total_pay: number
   }
+  diligence?: { department: string; grace_minutes: number; deduction_amount: number; mode: string }
+  incentive_breakdown?: Array<{ name: string; sales: number; rate: number; amount: number }>
 }
 
 export default function PayrollPage() {
@@ -145,6 +161,8 @@ export default function PayrollPage() {
       commission_total: p.commission_total,
       bonus: p.bonus,
       deductions: p.deductions,
+      incentive_total: p.incentive_total || 0,
+      diligence_deduction: p.diligence_deduction || 0,
       total_pay: p.total_pay,
       notes: p.notes || '',
     })
@@ -438,6 +456,30 @@ export default function PayrollPage() {
               ทุกช่องแก้ไขได้ก่อนบันทึก — ถ้าระบบคำนวณพลาด พิมพ์ตัวเลขที่ถูกต้องทับได้เลย
             </div>
 
+            {calcResult.diligence && (
+              <div className="bg-white border border-gray-200 rounded-lg px-3 py-2 mb-3 text-xs text-gray-600 space-y-1">
+                <p>
+                  <span className="font-medium text-gray-800">เบี้ยขยัน:</span> มาสาย{' '}
+                  <span className={calcEdit.late_days > 0 ? 'text-red-600 font-semibold' : 'text-green-600 font-semibold'}>
+                    {calcEdit.late_days}
+                  </span>{' '}
+                  วัน (เกณฑ์สาย {calcResult.diligence.grace_minutes} นาที)
+                  {calcEdit.diligence_deduction > 0
+                    ? ` → หัก ${formatCurrency(calcEdit.diligence_deduction)}`
+                    : ' → ไม่ถูกหัก'}
+                  {calcResult.diligence.mode === 'incident' && ' (หักทุกครั้งที่สาย)'}
+                </p>
+                {(calcResult.incentive_breakdown ?? []).length > 0 && (
+                  <p>
+                    <span className="font-medium text-gray-800">Incentive:</span>{' '}
+                    {calcResult.incentive_breakdown!.map(b =>
+                      `${b.name} ยอดขาย ${formatCurrency(b.sales)} × ${b.rate}% = ${formatCurrency(b.amount)}`
+                    ).join(' · ')}
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="bg-white rounded-lg p-4 space-y-3">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div>
@@ -487,6 +529,18 @@ export default function PayrollPage() {
                   <input type="number" min={0} step="any" className="input-field"
                     value={calcEdit.deductions}
                     onChange={e => patchCalc({ deductions: Number(e.target.value) })} />
+                </div>
+                <div>
+                  <label className="label text-xs">Incentive สาขา (฿)</label>
+                  <input type="number" min={0} step="any" className="input-field"
+                    value={calcEdit.incentive_total}
+                    onChange={e => patchCalc({ incentive_total: Number(e.target.value) })} />
+                </div>
+                <div>
+                  <label className="label text-xs">หักเบี้ยขยัน (฿)</label>
+                  <input type="number" min={0} step="any" className="input-field"
+                    value={calcEdit.diligence_deduction}
+                    onChange={e => patchCalc({ diligence_deduction: Number(e.target.value) })} />
                 </div>
               </div>
 

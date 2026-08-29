@@ -1,5 +1,6 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { verifySession } from '@/lib/admin-auth'
+import { departmentOfEmployee } from '@/lib/diligence'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -28,15 +29,16 @@ export async function GET(request: NextRequest) {
   try {
     const [empResult, attResult, settingsResult, shiftsResult] = await Promise.all([
       db.prepare(`
-        SELECT e.id, e.name, e.daily_rate, e.employee_type, e.salary_type,
+        SELECT e.id, e.name, e.daily_rate, e.employee_type, e.salary_type, e.job_title,
                s.id as shift_id, s.name as shift_name,
                s.start_time as shift_start, s.end_time as shift_end,
                s.regular_hours, s.break_minutes
         FROM employees e
-        LEFT JOIN shifts s ON s.id = (
-          SELECT a2.shift_id FROM attendance a2
-          WHERE a2.employee_id = e.id AND a2.date = ? LIMIT 1
-        )
+        LEFT JOIN attendance a ON a.employee_id = e.id AND a.date = ?
+        -- Branch worked that day, otherwise the employee's own branch
+        LEFT JOIN sales_points sp ON sp.id = COALESCE(a.sales_point_id, e.sales_point_id)
+        -- Shift saved for the day wins; otherwise the branch's default shift
+        LEFT JOIN shifts s ON s.id = COALESCE(a.shift_id, sp.default_shift_id)
         WHERE e.is_active = 1
           AND (e.job_title IS NULL OR e.job_title IN ('', 'kitchen', 'sales'))
         ORDER BY e.name ASC
@@ -63,6 +65,7 @@ export async function GET(request: NextRequest) {
 
     const employees = (empResult.results as any[]).map(emp => ({
       ...emp,
+      department: departmentOfEmployee(emp),
       attendance: attMap[emp.id] || null,
     }))
 
@@ -115,6 +118,7 @@ export async function POST(request: NextRequest) {
       if (rec.attendance_id) {
         await db.prepare(`
           UPDATE attendance SET
+            shift_id = ?,
             check_in = ?, check_out = ?,
             day_type = ?, regular_hours = ?, ot_hours = ?,
             food_allowance = ?, split_shift_allowance = ?,
@@ -122,6 +126,7 @@ export async function POST(request: NextRequest) {
             status = ?, notes = ?, approved = ?
           WHERE id = ?
         `).bind(
+          rec.shift_id,
           rec.check_in, rec.check_out,
           rec.day_type, rec.regular_hours, rec.ot_hours,
           rec.food_allowance, rec.split_shift_allowance,

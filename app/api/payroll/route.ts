@@ -77,6 +77,7 @@ export async function POST(request: NextRequest) {
       days_worked?: number; day_rate_total?: number; ot_hours_total?: number;
       ot_total?: number; sales_total?: number; commission_total?: number;
       bonus?: number; deductions?: number; total_pay?: number; status?: string; notes?: string
+      incentive_total?: number; late_days?: number; diligence_deduction?: number
     }
 
     const user = await currentUser(request, db)
@@ -85,7 +86,8 @@ export async function POST(request: NextRequest) {
 
     const { employee_id, period_start, period_end, days_worked = 0, day_rate_total = 0,
       ot_hours_total = 0, ot_total = 0, sales_total = 0, commission_total = 0,
-      bonus = 0, deductions = 0, total_pay = 0, status = 'pending', notes } = body
+      bonus = 0, deductions = 0, total_pay = 0, status = 'pending', notes,
+      incentive_total = 0, late_days = 0, diligence_deduction = 0 } = body
 
     if (!employee_id || !period_start || !period_end) {
       return Response.json({ error: 'employee_id, period_start, and period_end are required' }, { status: 400 })
@@ -98,11 +100,13 @@ export async function POST(request: NextRequest) {
     await db.prepare(`
       INSERT INTO payroll (id, employee_id, period_start, period_end, days_worked,
         day_rate_total, ot_hours_total, ot_total, sales_total, commission_total,
-        bonus, deductions, total_pay, status, notes, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        bonus, deductions, total_pay, status, notes, created_by,
+        incentive_total, late_days, diligence_deduction)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(id, employee_id, period_start, period_end, days_worked, day_rate_total,
       ot_hours_total, ot_total, sales_total, commission_total,
-      bonus, deductions, total_pay, status, notes || null, user.username).run()
+      bonus, deductions, total_pay, status, notes || null, user.username,
+      incentive_total, late_days, diligence_deduction).run()
 
     const payroll = await db.prepare(`
       SELECT p.*, e.name as employee_name, e.employee_type
@@ -126,11 +130,13 @@ export async function PATCH(request: NextRequest) {
       ot_hours_total?: number; ot_total?: number
       sales_total?: number; commission_total?: number
       bonus?: number; deductions?: number; total_pay?: number
+      incentive_total?: number; diligence_deduction?: number
       edited_by?: string
     }
     const {
       id, status, notes, days_worked, day_rate_total, ot_hours_total, ot_total,
       sales_total, commission_total, bonus, deductions, total_pay, edited_by,
+      incentive_total, diligence_deduction,
     } = body
 
     if (!id) return Response.json({ error: 'id is required' }, { status: 400 })
@@ -150,6 +156,7 @@ export async function PATCH(request: NextRequest) {
     const isAmountEdit = [
       days_worked, day_rate_total, ot_hours_total, ot_total,
       sales_total, commission_total, bonus, deductions, total_pay,
+      incentive_total, diligence_deduction,
     ].some(v => v !== undefined)
 
     try {
@@ -179,6 +186,8 @@ export async function PATCH(request: NextRequest) {
         bonus = COALESCE(?, bonus),
         deductions = COALESCE(?, deductions),
         total_pay = COALESCE(?, total_pay),
+        incentive_total = COALESCE(?, incentive_total),
+        diligence_deduction = COALESCE(?, diligence_deduction),
         original_total_pay = ?,
         edited_at = ?,
         edited_by = ?
@@ -189,6 +198,7 @@ export async function PATCH(request: NextRequest) {
       ot_hours_total ?? null, ot_total ?? null,
       sales_total ?? null, commission_total ?? null,
       bonus ?? null, deductions ?? null, total_pay ?? null,
+      incentive_total ?? null, diligence_deduction ?? null,
       originalTotal, editedAt, editedBy,
       id,
     ).run()

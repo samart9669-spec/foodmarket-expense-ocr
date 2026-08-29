@@ -1,5 +1,6 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { calculatePayroll } from '@/lib/utils'
+import { departmentOfEmployee, lateGraceKey } from '@/lib/diligence'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -24,7 +25,8 @@ export async function POST(request: NextRequest) {
     }
 
     const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(employee_id).first() as {
-      id: string; name: string; employee_type: string; salary_type: string | null;
+      id: string; name: string; employee_type: string; salary_type: string | null; job_title: string | null;
+      sales_point_id: string | null;
       daily_rate: number; ot_rate: number; commission_rate: number
     } | null
 
@@ -38,7 +40,7 @@ export async function POST(request: NextRequest) {
 
     const attendanceRecords = attendanceResult.results as Array<{
       id: string; date: string; check_in: string | null; check_out: string | null;
-      regular_hours: number; ot_hours: number; status: string
+      regular_hours: number; ot_hours: number; status: string; sales_point_id: string | null
     }>
 
     const salesResult = await db.prepare(
@@ -55,6 +57,50 @@ export async function POST(request: NextRequest) {
       deductions,
     )
 
+    // ── Settings ──────────────────────────────────────────────────
+    const settingsRes = await db.prepare('SELECT key, value FROM payroll_settings').all()
+    const settings: Record<string, string> = {}
+    for (const row of (settingsRes.results || []) as any[]) settings[row.key] = row.value
+
+    // ── เบี้ยขยัน: forfeited when the employee was late in the period ──
+    const department = departmentOfEmployee(employee)
+    const graceMinutes = parseInt(settings[lateGraceKey(department)] ?? '15') || 0
+    const deductionAmount = parseFloat(settings.diligence_deduction ?? '500') || 0
+    const deductPerIncident = (settings.diligence_deduct_mode ?? 'period') === 'incident'
+
+    const late_days = attendanceRecords.filter(a => a.status === 'late').length
+    const diligence_deduction = late_days === 0
+      ? 0
+      : deductPerIncident ? late_days * deductionAmount : deductionAmount
+
+    // ── Incentive from the sales of the branches worked in the period ──
+    // Each branch pays its own rate on the sales it took that period.
+    const branchIds = new Set<string>()
+    for (const a of attendanceRecords) if (a.sales_point_id) branchIds.add(a.sales_point_id)
+    if (branchIds.size === 0 && employee.sales_point_id) branchIds.add(employee.sales_point_id)
+
+    let incentive_total = 0
+    const incentive_breakdown: Array<{ sales_point_id: string; name: string; sales: number; rate: number; amount: number }> = []
+    for (const spId of Array.from(branchIds)) {
+      const branch = await db.prepare('SELECT id, name, incentive_rate FROM sales_points WHERE id = ?')
+        .bind(spId).first() as any
+      const rate = parseFloat(branch?.incentive_rate ?? 0) || 0
+      if (!branch || rate <= 0) continue
+      const branchSales = await db.prepare(
+        'SELECT COALESCE(SUM(amount), 0) AS total FROM sales WHERE sales_point_id = ? AND date BETWEEN ? AND ?'
+      ).bind(spId, period_start, period_end).first() as any
+      const sales = branchSales?.total || 0
+      const amount = Math.round(sales * (rate / 100) * 100) / 100
+      if (amount === 0) continue
+      incentive_total += amount
+      incentive_breakdown.push({ sales_point_id: spId, name: branch.name, sales, rate, amount })
+    }
+    incentive_total = Math.round(incentive_total * 100) / 100
+
+    const total_pay = Math.round(
+      (calculation.total_pay + incentive_total - diligence_deduction) * 100
+    ) / 100
+
     return Response.json({
       employee: { id: employee.id, name: employee.name, employee_type: employee.employee_type,
         salary_type: employee.salary_type || 'daily',
@@ -63,7 +109,14 @@ export async function POST(request: NextRequest) {
       attendance_count: attendanceRecords.length,
       attendance_records: attendanceRecords,
       sales_records: salesRecords,
-      calculation,
+      diligence: {
+        department,
+        grace_minutes: graceMinutes,
+        deduction_amount: deductionAmount,
+        mode: deductPerIncident ? 'incident' : 'period',
+      },
+      incentive_breakdown,
+      calculation: { ...calculation, incentive_total, late_days, diligence_deduction, total_pay },
     })
   } catch (error) {
     console.error('POST /api/payroll/calculate error:', error)
