@@ -24,6 +24,7 @@ interface PayrollRecord {
   incentive_total: number
   late_days: number
   diligence_deduction: number
+  diligence_allowance: number
   total_pay: number
   status: string
   notes: string | null
@@ -45,18 +46,19 @@ interface EditForm {
   deductions: number
   incentive_total: number
   diligence_deduction: number
+  diligence_allowance: number
   total_pay: number
   notes: string
 }
 
-/** รวมทั้งหมด = ค่าแรง + OT + คอมมิชชัน + incentive + โบนัส − รายการหัก − เบี้ยขยันที่ถูกหัก */
+/** รวมทั้งหมด = ค่าแรง + OT + คอม + incentive + เบี้ยขยัน + โบนัส − รายการหัก − เบี้ยขยันที่ถูกหัก */
 function sumTotal(f: {
   day_rate_total: number; ot_total: number; commission_total: number
   bonus: number; deductions: number
-  incentive_total?: number; diligence_deduction?: number
+  incentive_total?: number; diligence_deduction?: number; diligence_allowance?: number
 }): number {
   return Math.round(((f.day_rate_total || 0) + (f.ot_total || 0) + (f.commission_total || 0)
-    + (f.incentive_total || 0) + (f.bonus || 0)
+    + (f.incentive_total || 0) + (f.diligence_allowance || 0) + (f.bonus || 0)
     - (f.deductions || 0) - (f.diligence_deduction || 0)) * 100) / 100
 }
 
@@ -90,9 +92,13 @@ interface CalcResult {
     incentive_total: number
     late_days: number
     diligence_deduction: number
+    diligence_allowance: number
     total_pay: number
   }
-  diligence?: { department: string; grace_minutes: number; deduction_amount: number; mode: string }
+  diligence?: {
+    department: string; department_label: string; eligible: boolean
+    grace_minutes: number; amount: number; deduction_amount: number; mode: string
+  }
   incentive_breakdown?: Array<{ name: string; sales: number; rate: number; amount: number }>
 }
 
@@ -163,6 +169,7 @@ export default function PayrollPage() {
       deductions: p.deductions,
       incentive_total: p.incentive_total || 0,
       diligence_deduction: p.diligence_deduction || 0,
+      diligence_allowance: p.diligence_allowance || 0,
       total_pay: p.total_pay,
       notes: p.notes || '',
     })
@@ -459,15 +466,25 @@ export default function PayrollPage() {
             {calcResult.diligence && (
               <div className="bg-white border border-gray-200 rounded-lg px-3 py-2 mb-3 text-xs text-gray-600 space-y-1">
                 <p>
-                  <span className="font-medium text-gray-800">เบี้ยขยัน:</span> มาสาย{' '}
-                  <span className={calcEdit.late_days > 0 ? 'text-red-600 font-semibold' : 'text-green-600 font-semibold'}>
-                    {calcEdit.late_days}
+                  <span className="font-medium text-gray-800">
+                    เบี้ยขยัน ({calcResult.diligence.department_label}):
                   </span>{' '}
-                  วัน (เกณฑ์สาย {calcResult.diligence.grace_minutes} นาที)
-                  {calcEdit.diligence_deduction > 0
-                    ? ` → หัก ${formatCurrency(calcEdit.diligence_deduction)}`
-                    : ' → ไม่ถูกหัก'}
-                  {calcResult.diligence.mode === 'incident' && ' (หักทุกครั้งที่สาย)'}
+                  {!calcResult.diligence.eligible ? (
+                    <span className="text-gray-500">แผนกนี้ไม่มีเบี้ยขยัน</span>
+                  ) : (
+                    <>
+                      มาสาย{' '}
+                      <span className={calcEdit.late_days > 0 ? 'text-red-600 font-semibold' : 'text-green-600 font-semibold'}>
+                        {calcEdit.late_days}
+                      </span>{' '}
+                      วัน (เกณฑ์สาย {calcResult.diligence.grace_minutes} นาที)
+                      {calcEdit.diligence_allowance > 0 && ` · จ่าย ${formatCurrency(calcEdit.diligence_allowance)}`}
+                      {calcEdit.diligence_deduction > 0
+                        ? ` · หัก ${formatCurrency(calcEdit.diligence_deduction)}`
+                        : ' · ไม่ถูกหัก'}
+                      {calcResult.diligence.mode === 'incident' && ' (หักทุกครั้งที่สาย)'}
+                    </>
+                  )}
                 </p>
                 {(calcResult.incentive_breakdown ?? []).length > 0 && (
                   <p>
@@ -535,6 +552,12 @@ export default function PayrollPage() {
                   <input type="number" min={0} step="any" className="input-field"
                     value={calcEdit.incentive_total}
                     onChange={e => patchCalc({ incentive_total: Number(e.target.value) })} />
+                </div>
+                <div>
+                  <label className="label text-xs">เบี้ยขยันที่จ่าย (฿)</label>
+                  <input type="number" min={0} step="any" className="input-field"
+                    value={calcEdit.diligence_allowance}
+                    onChange={e => patchCalc({ diligence_allowance: Number(e.target.value) })} />
                 </div>
                 <div>
                   <label className="label text-xs">หักเบี้ยขยัน (฿)</label>

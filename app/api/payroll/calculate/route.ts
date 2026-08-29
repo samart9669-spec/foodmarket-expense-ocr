@@ -1,6 +1,6 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { calculatePayroll } from '@/lib/utils'
-import { departmentOfEmployee, lateGraceKey } from '@/lib/diligence'
+import { diligenceTermsFor, diligenceForPeriod, DEPARTMENT_LABELS } from '@/lib/diligence'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -62,16 +62,11 @@ export async function POST(request: NextRequest) {
     const settings: Record<string, string> = {}
     for (const row of (settingsRes.results || []) as any[]) settings[row.key] = row.value
 
-    // ── เบี้ยขยัน: forfeited when the employee was late in the period ──
-    const department = departmentOfEmployee(employee)
-    const graceMinutes = parseInt(settings[lateGraceKey(department)] ?? '15') || 0
-    const deductionAmount = parseFloat(settings.diligence_deduction ?? '500') || 0
-    const deductPerIncident = (settings.diligence_deduct_mode ?? 'period') === 'incident'
-
+    // ── เบี้ยขยัน: pay and deduct terms differ per department; office has none ──
+    const terms = diligenceTermsFor(employee, settings)
     const late_days = attendanceRecords.filter(a => a.status === 'late').length
-    const diligence_deduction = late_days === 0
-      ? 0
-      : deductPerIncident ? late_days * deductionAmount : deductionAmount
+    const { allowance: diligence_allowance, deduction: diligence_deduction } =
+      diligenceForPeriod(terms, late_days)
 
     // ── Incentive from the sales of the branches worked in the period ──
     // Each branch pays its own rate on the sales it took that period.
@@ -98,7 +93,7 @@ export async function POST(request: NextRequest) {
     incentive_total = Math.round(incentive_total * 100) / 100
 
     const total_pay = Math.round(
-      (calculation.total_pay + incentive_total - diligence_deduction) * 100
+      (calculation.total_pay + incentive_total + diligence_allowance - diligence_deduction) * 100
     ) / 100
 
     return Response.json({
@@ -110,13 +105,21 @@ export async function POST(request: NextRequest) {
       attendance_records: attendanceRecords,
       sales_records: salesRecords,
       diligence: {
-        department,
-        grace_minutes: graceMinutes,
-        deduction_amount: deductionAmount,
-        mode: deductPerIncident ? 'incident' : 'period',
+        department: terms.department,
+        department_label: DEPARTMENT_LABELS[terms.department],
+        eligible: terms.eligible,
+        grace_minutes: terms.grace_minutes,
+        amount: terms.amount,
+        deduction_amount: terms.deduction,
+        mode: terms.mode,
       },
       incentive_breakdown,
-      calculation: { ...calculation, incentive_total, late_days, diligence_deduction, total_pay },
+      calculation: {
+        ...calculation,
+        incentive_total, late_days,
+        diligence_allowance, diligence_deduction,
+        total_pay,
+      },
     })
   } catch (error) {
     console.error('POST /api/payroll/calculate error:', error)

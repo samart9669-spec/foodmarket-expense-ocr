@@ -111,15 +111,44 @@ export async function runMigrations(db: any): Promise<string[]> {
     ('uniform_deposit', '0', 'ค่ามัดจำเครื่องแบบ', 'deduction', '฿')
   `, 'payroll_settings seed')
 
-  // เบี้ยขยัน: grace period before a check-in counts as late, set per
-  // department, plus the amount forfeited and how often it is applied.
+  // เบี้ยขยัน: หน้าร้านและครัวกลางใช้เกณฑ์คนละชุด ส่วนออฟฟิศไม่มีเบี้ยขยัน
+  // (grace is still kept for office so lateness is still recorded).
   await run(`INSERT OR IGNORE INTO payroll_settings (key, value, label, category, unit) VALUES
-    ('late_grace_sales', '15', 'สายเมื่อเกิน (หน้าร้าน)', 'diligence', 'นาที'),
-    ('late_grace_kitchen', '15', 'สายเมื่อเกิน (ครัวกลาง)', 'diligence', 'นาที'),
-    ('late_grace_office', '15', 'สายเมื่อเกิน (ออฟฟิศ)', 'diligence', 'นาที'),
-    ('diligence_deduction', '500', 'ยอดหักเบี้ยขยันเมื่อมาสาย', 'diligence', '฿'),
-    ('diligence_deduct_mode', 'period', 'รอบหัก: period = หักครั้งเดียวต่อรอบจ่าย, incident = หักทุกครั้งที่สาย', 'diligence', '')
+    ('late_grace_sales', '15', 'สายเมื่อเกิน — หน้าร้าน', 'diligence', 'นาที'),
+    ('late_grace_kitchen', '15', 'สายเมื่อเกิน — ครัวกลาง', 'diligence', 'นาที'),
+    ('late_grace_office', '15', 'สายเมื่อเกิน — ออฟฟิศ (ไม่มีเบี้ยขยัน)', 'diligence', 'นาที'),
+    ('diligence_amount_sales', '0', 'เบี้ยขยันที่จ่าย/รอบ — หน้าร้าน', 'diligence', '฿'),
+    ('diligence_amount_kitchen', '0', 'เบี้ยขยันที่จ่าย/รอบ — ครัวกลาง', 'diligence', '฿'),
+    ('diligence_deduction_sales', '500', 'ยอดหักเมื่อมาสาย — หน้าร้าน', 'diligence', '฿'),
+    ('diligence_deduction_kitchen', '500', 'ยอดหักเมื่อมาสาย — ครัวกลาง', 'diligence', '฿'),
+    ('diligence_mode_sales', 'period', 'รอบหัก หน้าร้าน — period = หักครั้งเดียวต่อรอบจ่าย, incident = หักทุกครั้งที่สาย', 'diligence', ''),
+    ('diligence_mode_kitchen', 'period', 'รอบหัก ครัวกลาง — period = หักครั้งเดียวต่อรอบจ่าย, incident = หักทุกครั้งที่สาย', 'diligence', '')
   `, 'diligence settings seed')
+
+  // Refresh labels on rows seeded by earlier versions (INSERT OR IGNORE keeps
+  // the old text otherwise)
+  await run(`UPDATE payroll_settings SET label = CASE key
+      WHEN 'late_grace_sales' THEN 'สายเมื่อเกิน — หน้าร้าน'
+      WHEN 'late_grace_kitchen' THEN 'สายเมื่อเกิน — ครัวกลาง'
+      WHEN 'late_grace_office' THEN 'สายเมื่อเกิน — ออฟฟิศ (ไม่มีเบี้ยขยัน)'
+      ELSE label END
+    WHERE key IN ('late_grace_sales','late_grace_kitchen','late_grace_office')`,
+    'diligence labels refreshed')
+
+  // Carry the previous single set of values into both departments, once
+  await run(`UPDATE payroll_settings SET value = (SELECT value FROM payroll_settings WHERE key = 'diligence_deduction')
+             WHERE key IN ('diligence_deduction_sales','diligence_deduction_kitchen')
+               AND EXISTS (SELECT 1 FROM payroll_settings WHERE key = 'diligence_deduction')`,
+             'diligence deduction carried over')
+  await run(`UPDATE payroll_settings SET value = (SELECT value FROM payroll_settings WHERE key = 'diligence_deduct_mode')
+             WHERE key IN ('diligence_mode_sales','diligence_mode_kitchen')
+               AND EXISTS (SELECT 1 FROM payroll_settings WHERE key = 'diligence_deduct_mode')`,
+             'diligence mode carried over')
+  await run("DELETE FROM payroll_settings WHERE key IN ('diligence_deduction','diligence_deduct_mode')",
+            'old global diligence settings removed')
+
+  // Diligence allowance actually paid on a payroll record
+  await run('ALTER TABLE payroll ADD COLUMN diligence_allowance REAL DEFAULT 0', 'payroll.diligence_allowance')
 
   // Branch incentive rate (% of that branch's sales in the period)
   await run('ALTER TABLE sales_points ADD COLUMN incentive_rate REAL DEFAULT 0', 'sales_points.incentive_rate')
