@@ -4,7 +4,7 @@ export const runtime = 'edge'
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { getAuthHeaders, roundOTToHalfHour, isOTEligible, lateMinutes } from '@/lib/utils'
+import { getAuthHeaders, roundOTToHalfHour, isOTEligible, lateMinutes, scheduledWorkHours } from '@/lib/utils'
 
 interface ShiftInfo {
   id: string; name: string; start_time: string; end_time: string
@@ -70,7 +70,8 @@ function calcMinutesDiff(fromHHMM: string, toHHMM: string): number {
 }
 
 function computeRow(row: AttendanceRow, settings: Record<string, string>): AttendanceRow {
-  const breakMins = row.break_minutes || 60
+  // ?? not || — a shift with no break is 0 minutes, not the 60-minute default
+  const breakMins = row.break_minutes ?? 60
   const workMins = calcMinutesDiff(row.check_in, row.check_out)
   const actual_hours = workMins > 0 ? Math.max(0, (workMins - breakMins) / 60) : 0
 
@@ -80,7 +81,13 @@ function computeRow(row: AttendanceRow, settings: Record<string, string>): Atten
   const lateMins = row.shift_start && row.check_in
     ? lateMinutes(row.shift_start, row.check_in, grace)
     : 0
-  const regularHours = row.regular_hours_shift || 8
+  // Paid hours in the shift = span minus the unpaid break. The stored
+  // regular_hours holds the raw start-to-end span, so using it here would
+  // compare hours that already had the break deducted against hours that
+  // still include it — which lost the first hour of OT every day.
+  const regularHours = scheduledWorkHours(
+    row.shift_start, row.shift_end, breakMins, row.regular_hours_shift || 8,
+  )
   // OT: daily-rate staff only, counted in whole 30-minute blocks
   const ot_hours = isOTEligible(row.salary_type)
     ? roundOTToHalfHour(Math.max(0, actual_hours - regularHours))

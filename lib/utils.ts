@@ -93,6 +93,36 @@ export function lateMinutes(scheduledStart: string, actualCheckIn: string, grace
   return diff > graceMinutes ? diff : 0
 }
 
+/** Minutes a shift spans, wrapping past midnight for night shifts. */
+export function shiftSpanMinutes(start: string, end: string): number {
+  if (!start || !end) return 0
+  const a = start.match(/(\d{1,2}):(\d{2})/)
+  const b = end.match(/(\d{1,2}):(\d{2})/)
+  if (!a || !b) return 0
+  let mins = (Number(b[1]) * 60 + Number(b[2])) - (Number(a[1]) * 60 + Number(a[2]))
+  if (mins < 0) mins += 24 * 60
+  return mins
+}
+
+/**
+ * Paid hours in a shift: the scheduled span minus the unpaid break.
+ *
+ * OT has to be measured against this, not against the stored regular_hours —
+ * that field is filled from the raw start-to-end span, so comparing it with
+ * hours that already had the break deducted swallowed the first hour of OT
+ * every single day.
+ */
+export function scheduledWorkHours(
+  start: string | null,
+  end: string | null,
+  breakMinutes = 0,
+  fallbackHours = 8,
+): number {
+  const span = start && end ? shiftSpanMinutes(start, end) : 0
+  if (span <= 0) return fallbackHours
+  return Math.max(0, (span - (breakMinutes || 0)) / 60)
+}
+
 export function calculateHoursWorked(checkIn: string, checkOut: string): number {
   if (!checkIn || !checkOut) return 0
   const inTime = new Date(checkIn)

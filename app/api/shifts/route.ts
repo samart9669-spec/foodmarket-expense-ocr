@@ -24,8 +24,8 @@ export async function POST(request: Request) {
     }
 
     const id = `shift-${Date.now()}`
-    const hours = regular_hours ?? calcHours(start_time, end_time)
     const brk = break_minutes ?? 60
+    const hours = regular_hours ?? calcHours(start_time, end_time, brk)
 
     await env.DB.prepare(
       'INSERT INTO shifts (id, name, start_time, end_time, regular_hours, break_minutes) VALUES (?, ?, ?, ?, ?, ?)'
@@ -48,8 +48,8 @@ export async function PUT(request: Request) {
       return Response.json({ error: 'ข้อมูลไม่ครบ' }, { status: 400 })
     }
 
-    const hours = regular_hours ?? calcHours(start_time, end_time)
     const brk = break_minutes ?? 60
+    const hours = regular_hours ?? calcHours(start_time, end_time, brk)
 
     await env.DB.prepare(
       'UPDATE shifts SET name=?, start_time=?, end_time=?, regular_hours=?, break_minutes=? WHERE id=?'
@@ -78,10 +78,12 @@ export async function DELETE(request: Request) {
   }
 }
 
-function calcHours(start: string, end: string): number {
+// Paid hours = the start-to-end span minus the unpaid break, so OT starts at
+// the shift's end time rather than a break's worth of hours later.
+function calcHours(start: string, end: string, breakMinutes = 0): number {
   const [sh, sm] = start.split(':').map(Number)
   const [eh, em] = end.split(':').map(Number)
   let mins = (eh * 60 + em) - (sh * 60 + sm)
   if (mins < 0) mins += 24 * 60
-  return Math.round((mins / 60) * 10) / 10
+  return Math.max(0, Math.round(((mins - (breakMinutes || 0)) / 60) * 10) / 10)
 }
