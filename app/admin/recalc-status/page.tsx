@@ -21,6 +21,8 @@ interface Change {
   to_status: string
   from_early_out: number
   to_early_out: number
+  from_ot_hours: number
+  to_ot_hours: number
   unknown_schedule: boolean
 }
 
@@ -90,7 +92,10 @@ export default function RecalcStatusPage() {
       })
       const d = await res.json() as any
       if (res.ok) {
-        setToast({ msg: `ปรับสถานะแล้ว ${d.updated} รายการ (มาสาย ${d.to_late}, ตรงเวลา ${d.to_present})`, ok: true })
+        setToast({
+          msg: `ปรับแล้ว ${d.updated} รายการ (มาสาย ${d.to_late}, ตรงเวลา ${d.to_present}, ปรับ OT ${d.ot_fixed})`,
+          ok: true,
+        })
         load()
       } else {
         setToast({ msg: d.error || 'เกิดข้อผิดพลาด', ok: false })
@@ -105,6 +110,7 @@ export default function RecalcStatusPage() {
   const changes = data?.changes || []
   const toLate = changes.filter(c => c.to_status === 'late').length
   const toPresent = changes.filter(c => c.to_status === 'present').length
+  const otFixed = changes.filter(c => c.from_ot_hours !== c.to_ot_hours).length
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 space-y-5">
@@ -113,6 +119,7 @@ export default function RecalcStatusPage() {
         <p className="text-sm text-gray-500 mt-1">
           คำนวณสถานะ &quot;มาสาย / ตรงเวลา&quot; ของรายการเข้างานที่บันทึกไว้แล้วใหม่
           ตามเวลาเข้ากะและจำนวนนาทีผ่อนผันของแต่ละแผนก
+          พร้อมปรับชั่วโมง OT ที่เก็บเป็นรายนาทีให้เป็นราย 30 นาที (ไม่ถึง 30 นาที ไม่นับ)
           รายการที่เป็น ลา ขาดงาน หรือครึ่งวัน จะไม่ถูกแก้ไข
         </p>
       </div>
@@ -160,12 +167,13 @@ export default function RecalcStatusPage() {
       )}
 
       {data && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           {[
             { label: 'ตรวจสอบทั้งหมด', value: data.scanned },
             { label: 'ต้องแก้ไข', value: changes.length },
             { label: 'เปลี่ยนเป็นมาสาย', value: toLate },
             { label: 'เปลี่ยนเป็นตรงเวลา', value: toPresent },
+            { label: 'ปรับ OT เป็นราย 30 นาที', value: otFixed },
           ].map(s => (
             <div key={s.label} className="bg-white border border-gray-200 rounded-xl px-4 py-3">
               <div className="text-xs text-gray-500">{s.label}</div>
@@ -201,6 +209,7 @@ export default function RecalcStatusPage() {
                   <th className="px-3 py-3 text-center">สาย (นาที)</th>
                   <th className="px-3 py-3 text-center">เดิม</th>
                   <th className="px-3 py-3 text-center">ใหม่</th>
+                  <th className="px-3 py-3 text-center">OT (ชม.)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -216,6 +225,11 @@ export default function RecalcStatusPage() {
                     <td className="px-3 py-2 text-center text-gray-500">{label(c.from_status)}</td>
                     <td className={`px-3 py-2 text-center font-semibold ${c.to_status === 'late' ? 'text-orange-600' : 'text-green-600'}`}>
                       {label(c.to_status)}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {c.from_ot_hours !== c.to_ot_hours
+                        ? <span className="text-blue-600 font-medium">{c.from_ot_hours} → {c.to_ot_hours}</span>
+                        : <span className="text-gray-400">{c.to_ot_hours}</span>}
                     </td>
                   </tr>
                 ))}

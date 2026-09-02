@@ -143,9 +143,12 @@ export function calculatePayroll(
     if (a.status === 'present' || a.status === 'late') return sum + employee.daily_rate
     return sum
   }, 0)
-  // Monthly staff earn no OT; daily staff are paid in 30-minute blocks
+  // Monthly staff earn no OT; daily staff are paid in 30-minute blocks.
+  // Each day is rounded down on its own before being summed — otherwise
+  // leftover minutes from several days would add up into a paid half hour,
+  // which is exactly what "ไม่ถึง 30 นาที ไม่นับ" rules out.
   const ot_hours_total = isOTEligible(employee.salary_type)
-    ? roundOTToHalfHour(attendanceRecords.reduce((sum, a) => sum + (a.ot_hours || 0), 0))
+    ? attendanceRecords.reduce((sum, a) => sum + roundOTToHalfHour(a.ot_hours || 0), 0)
     : 0
   const ot_total = ot_hours_total * employee.ot_rate
   const sales_total = salesRecords.reduce((sum, s) => sum + s.amount, 0)

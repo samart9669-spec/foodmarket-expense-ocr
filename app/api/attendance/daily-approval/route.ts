@@ -1,6 +1,7 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { verifySession } from '@/lib/admin-auth'
 import { departmentOfEmployee } from '@/lib/diligence'
+import { roundOTToHalfHour, isOTEligible } from '@/lib/utils'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -112,8 +113,19 @@ export async function POST(request: NextRequest) {
 
     const approved = action === 'approve' ? 1 : 0
 
+    // Salary type decides OT eligibility — looked up once for the whole save
+    const empRes = await db.prepare('SELECT id, salary_type FROM employees').all()
+    const salaryTypes: Record<string, string> = {}
+    for (const e of (empRes.results || []) as any[]) salaryTypes[e.id] = e.salary_type || 'daily'
+
     for (const rec of records) {
       if (!rec.check_in && !rec.check_out) continue
+
+      // OT is stored in whole 30-minute blocks for daily-rate staff only,
+      // so a hand-typed value can never reintroduce per-minute OT.
+      const otHours = isOTEligible(salaryTypes[rec.employee_id])
+        ? roundOTToHalfHour(Number(rec.ot_hours) || 0)
+        : 0
 
       if (rec.attendance_id) {
         await db.prepare(`
@@ -128,7 +140,7 @@ export async function POST(request: NextRequest) {
         `).bind(
           rec.shift_id,
           rec.check_in, rec.check_out,
-          rec.day_type, rec.regular_hours, rec.ot_hours,
+          rec.day_type, rec.regular_hours, otHours,
           rec.food_allowance, rec.split_shift_allowance,
           rec.cash_advance, rec.net_pay,
           rec.status, rec.notes, approved,
@@ -146,7 +158,7 @@ export async function POST(request: NextRequest) {
         `).bind(
           id, rec.employee_id, date, rec.shift_id,
           rec.check_in, rec.check_out,
-          rec.day_type, rec.regular_hours, rec.ot_hours,
+          rec.day_type, rec.regular_hours, otHours,
           rec.food_allowance, rec.split_shift_allowance,
           rec.cash_advance, rec.net_pay,
           rec.status, rec.notes, approved,

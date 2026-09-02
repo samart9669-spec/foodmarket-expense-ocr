@@ -3,7 +3,7 @@ import { isAdminAuthorized } from '@/lib/admin-auth'
 import { attendanceStatusFor, isRecalculable } from '@/lib/attendance-status'
 import { graceMinutesFor, departmentOfEmployee, DEPARTMENT_LABELS } from '@/lib/diligence'
 import { ensureAttendanceStatusColumns } from '@/lib/db-tables'
-import { getTodayString } from '@/lib/utils'
+import { getTodayString, roundOTToHalfHour, isOTEligible } from '@/lib/utils'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -24,8 +24,10 @@ interface Row {
   check_out: string | null
   status: string | null
   early_out: number | null
+  ot_hours: number | null
   job_title: string | null
   employee_type: string | null
+  salary_type: string | null
   work_start: string | null
   work_end: string | null
   shift_start: string | null
@@ -43,8 +45,8 @@ async function loadChanges(db: any, from: string, to: string) {
 
   const [attRes, settingsRes] = await Promise.all([
     db.prepare(`
-      SELECT a.id, a.employee_id, a.date, a.check_in, a.check_out, a.status, a.early_out,
-             e.name AS employee_name, e.job_title, e.employee_type, e.work_start, e.work_end,
+      SELECT a.id, a.employee_id, a.date, a.check_in, a.check_out, a.status, a.early_out, a.ot_hours,
+             e.name AS employee_name, e.job_title, e.employee_type, e.salary_type, e.work_start, e.work_end,
              s.start_time AS shift_start, s.end_time AS shift_end
       FROM attendance a
       JOIN employees e ON e.id = a.employee_id
@@ -89,9 +91,14 @@ async function loadChanges(db: any, from: string, to: string) {
     })
     if (!result.status) continue
 
+    // OT stored per minute is rebuilt into whole 30-minute blocks; monthly
+    // staff earn no OT at all.
+    const currentOt = Number(row.ot_hours) || 0
+    const newOt = isOTEligible(row.salary_type) ? roundOTToHalfHour(currentOt) : 0
+
     const currentStatus = (row.status ?? '').trim() || 'present'
     const currentEarly = row.early_out ? 1 : 0
-    if (currentStatus === result.status && currentEarly === result.early_out) continue
+    if (currentStatus === result.status && currentEarly === result.early_out && currentOt === newOt) continue
 
     changes.push({
       id: row.id,
@@ -108,6 +115,8 @@ async function loadChanges(db: any, from: string, to: string) {
       to_status: result.status,
       from_early_out: currentEarly,
       to_early_out: result.early_out,
+      from_ot_hours: Math.round(currentOt * 100) / 100,
+      to_ot_hours: newOt,
       unknown_schedule: result.unknown_schedule,
     })
   }
@@ -181,8 +190,8 @@ export async function POST(request: NextRequest) {
     const CHUNK = 50
     for (let i = 0; i < toApply.length; i += CHUNK) {
       const statements = toApply.slice(i, i + CHUNK).map(c =>
-        db.prepare('UPDATE attendance SET status = ?, early_out = ? WHERE id = ?')
-          .bind(c.to_status, c.to_early_out, c.id)
+        db.prepare('UPDATE attendance SET status = ?, early_out = ?, ot_hours = ? WHERE id = ?')
+          .bind(c.to_status, c.to_early_out, c.to_ot_hours, c.id)
       )
       await db.batch(statements)
     }
@@ -194,6 +203,7 @@ export async function POST(request: NextRequest) {
       to,
       to_late: toApply.filter(c => c.to_status === 'late').length,
       to_present: toApply.filter(c => c.to_status === 'present').length,
+      ot_fixed: toApply.filter(c => c.from_ot_hours !== c.to_ot_hours).length,
     })
   } catch (error) {
     console.error('POST /api/admin/recalc-status error:', error)

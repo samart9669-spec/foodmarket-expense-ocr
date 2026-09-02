@@ -1,5 +1,5 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
-import { generateId, getTodayString } from '@/lib/utils'
+import { generateId, getTodayString, roundOTToHalfHour, isOTEligible } from '@/lib/utils'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -87,10 +87,14 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: 'employee_id is required' }, { status: 400 })
     }
 
-    const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(employee_id).first()
+    const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(employee_id).first() as any
     if (!employee) {
       return Response.json({ error: 'Employee not found' }, { status: 404 })
     }
+
+    // OT is never stored per minute: daily-rate staff are paid in whole
+    // 30-minute blocks, monthly staff earn none at all.
+    const otStored = isOTEligible(employee.salary_type) ? roundOTToHalfHour(Number(ot_hours) || 0) : 0
 
     const existing = await db.prepare(
       'SELECT * FROM attendance WHERE employee_id = ? AND date = ?'
@@ -108,7 +112,7 @@ export async function POST(request: NextRequest) {
     `).bind(
       id, employee_id, date, shift_id || null, check_in || null, check_out || null,
       check_in_method, check_out_method || null, sales_point_id || null,
-      regular_hours, ot_hours, status, notes || null
+      regular_hours, otStored, status, notes || null
     ).run()
 
     const attendance = await db.prepare('SELECT * FROM attendance WHERE id = ?').bind(id).first()

@@ -3,7 +3,7 @@
 export const runtime = 'edge'
 
 import { useEffect, useState, useCallback } from 'react'
-import { getTodayString, formatCurrency, formatThaiTime, getEmployeeTypeLabel, getStatusLabel } from '@/lib/utils'
+import { getTodayString, formatCurrency, formatThaiTime, getEmployeeTypeLabel, getStatusLabel, calculateOTHours } from '@/lib/utils'
 import EmployeeTypeTag from '@/components/EmployeeTypeTag'
 
 interface AttendanceRecord {
@@ -89,7 +89,8 @@ export default function AttendancePage() {
         const outT = new Date(checkOutFull)
         const total = Math.max(0, (outT.getTime() - inT.getTime()) / 3600000)
         regularHours = Math.min(total, 8)
-        otHours = Math.max(0, total - 8)
+        // OT is paid in whole 30-minute blocks, never per minute
+        otHours = calculateOTHours(total)
       }
 
       const payload = {
