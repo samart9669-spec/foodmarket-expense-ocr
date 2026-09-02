@@ -3,7 +3,7 @@ import { isAdminAuthorized } from '@/lib/admin-auth'
 import { attendanceStatusFor, isRecalculable } from '@/lib/attendance-status'
 import { graceMinutesFor, departmentOfEmployee, DEPARTMENT_LABELS } from '@/lib/diligence'
 import { ensureAttendanceStatusColumns } from '@/lib/db-tables'
-import { getTodayString, roundOTToHalfHour, isOTEligible } from '@/lib/utils'
+import { getTodayString, roundOTToHalfHour, isOTEligible, scheduledWorkHours } from '@/lib/utils'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -32,6 +32,22 @@ interface Row {
   work_end: string | null
   shift_start: string | null
   shift_end: string | null
+}
+
+/**
+ * Hours between two stored timestamps ("YYYY-MM-DD HH:MM:SS"), parsed by hand
+ * so the result never depends on the runtime's date-string parsing.
+ */
+function hoursBetween(from: string | null, to: string | null): number | null {
+  if (!from || !to) return null
+  const parse = (s: string) => {
+    const m = s.match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{2})/)
+    if (!m) return null
+    return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5])
+  }
+  const a = parse(from), b = parse(to)
+  if (a === null || b === null) return null
+  return Math.max(0, (b - a) / 3600000)
 }
 
 function hhmm(s: string | null): string {
@@ -91,10 +107,17 @@ async function loadChanges(db: any, from: string, to: string) {
     })
     if (!result.status) continue
 
-    // OT stored per minute is rebuilt into whole 30-minute blocks; monthly
-    // staff earn no OT at all.
+    // OT is rebuilt from the times worked against the shift's own hours — the
+    // daily wage covers the whole shift, so no break is deducted. Falls back to
+    // simply rounding whatever was stored when the schedule is unknown.
     const currentOt = Number(row.ot_hours) || 0
-    const newOt = isOTEligible(row.salary_type) ? roundOTToHalfHour(currentOt) : 0
+    const worked = hoursBetween(row.check_in, row.check_out)
+    const otFromTimes = worked !== null && scheduledStart && scheduledEnd
+      ? roundOTToHalfHour(Math.max(0, worked - scheduledWorkHours(scheduledStart, scheduledEnd, 8)))
+      : null
+    const newOt = isOTEligible(row.salary_type)
+      ? (otFromTimes ?? roundOTToHalfHour(currentOt))
+      : 0
 
     const currentStatus = (row.status ?? '').trim() || 'present'
     const currentEarly = row.early_out ? 1 : 0

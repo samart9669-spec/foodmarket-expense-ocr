@@ -70,10 +70,10 @@ function calcMinutesDiff(fromHHMM: string, toHHMM: string): number {
 }
 
 function computeRow(row: AttendanceRow, settings: Record<string, string>): AttendanceRow {
-  // ?? not || — a shift with no break is 0 minutes, not the 60-minute default
-  const breakMins = row.break_minutes ?? 60
+  // The daily wage buys the whole shift, not a number of worked hours, so the
+  // break is part of the shift and is never deducted from the time worked.
   const workMins = calcMinutesDiff(row.check_in, row.check_out)
-  const actual_hours = workMins > 0 ? Math.max(0, (workMins - breakMins) / 60) : 0
+  const actual_hours = workMins > 0 ? workMins / 60 : 0
 
   // Late only when the check-in is past the shift start plus the department's
   // grace — arriving early is never late.
@@ -81,12 +81,10 @@ function computeRow(row: AttendanceRow, settings: Record<string, string>): Atten
   const lateMins = row.shift_start && row.check_in
     ? lateMinutes(row.shift_start, row.check_in, grace)
     : 0
-  // Paid hours in the shift = span minus the unpaid break. The stored
-  // regular_hours holds the raw start-to-end span, so using it here would
-  // compare hours that already had the break deducted against hours that
-  // still include it — which lost the first hour of OT every day.
+  // OT starts once the shift's own hours are past — derived from the shift
+  // times so it stays right even when the stored regular_hours disagrees.
   const regularHours = scheduledWorkHours(
-    row.shift_start, row.shift_end, breakMins, row.regular_hours_shift || 8,
+    row.shift_start, row.shift_end, row.regular_hours_shift || 8,
   )
   // OT: daily-rate staff only, counted in whole 30-minute blocks
   const ot_hours = isOTEligible(row.salary_type)

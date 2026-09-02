@@ -83,7 +83,6 @@ export async function POST(request: NextRequest) {
     // employee's fixed work_end)
     let endTimeStr: string | null = null
     let startTimeStr: string | null = null
-    let breakMinutes = 0
     let shiftId: string | null = existing.shift_id
     if (!shiftId) {
       // No shift on the record — fall back to the branch's default shift
@@ -94,24 +93,23 @@ export async function POST(request: NextRequest) {
       } catch {}
     }
     if (shiftId) {
-      const shift = await db.prepare('SELECT start_time, end_time, break_minutes FROM shifts WHERE id = ?')
+      const shift = await db.prepare('SELECT start_time, end_time FROM shifts WHERE id = ?')
         .bind(shiftId).first() as any
       if (shift?.end_time) endTimeStr = shift.end_time
       if (shift?.start_time) startTimeStr = shift.start_time
-      breakMinutes = Number(shift?.break_minutes ?? 0) || 0
     }
     if (!endTimeStr && (employee as any).work_end) endTimeStr = String((employee as any).work_end)
     if (!startTimeStr && (employee as any).work_start) startTimeStr = String((employee as any).work_start)
 
-    // Hours worked, net of the unpaid break, against the shift's paid hours —
-    // the same rule the daily approval sheet uses, so both agree.
-    const grossHours = calculateHoursWorked(existing.check_in, checkOutTime)
-    const totalHours = Math.max(0, grossHours - breakMinutes / 60)
-    const paidHours = scheduledWorkHours(startTimeStr, endTimeStr, breakMinutes, 8)
-    const regularHours = Math.min(totalHours, paidHours)
+    // The daily wage buys the whole shift, so the break is not deducted and OT
+    // starts once the shift's hours are past — the same rule the daily
+    // approval sheet uses, so both agree.
+    const totalHours = calculateHoursWorked(existing.check_in, checkOutTime)
+    const shiftHours = scheduledWorkHours(startTimeStr, endTimeStr, 8)
+    const regularHours = Math.min(totalHours, shiftHours)
     // OT: daily-rate staff only, paid in whole 30-minute blocks
     const otHours = isOTEligible((employee as any).salary_type)
-      ? calculateOTHours(totalHours, paidHours)
+      ? calculateOTHours(totalHours, shiftHours)
       : 0
 
     // Negative means before the scheduled end — normalised so a checkout just

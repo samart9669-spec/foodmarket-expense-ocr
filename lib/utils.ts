@@ -105,22 +105,21 @@ export function shiftSpanMinutes(start: string, end: string): number {
 }
 
 /**
- * Paid hours in a shift: the scheduled span minus the unpaid break.
+ * Hours a shift covers, start to end.
  *
- * OT has to be measured against this, not against the stored regular_hours —
- * that field is filled from the raw start-to-end span, so comparing it with
- * hours that already had the break deducted swallowed the first hour of OT
- * every single day.
+ * The daily wage buys the whole shift, not a number of worked hours, so the
+ * break is NOT deducted — it is part of the shift. OT is therefore whatever
+ * is worked beyond this span, and is measured against it rather than against
+ * the stored regular_hours (which can disagree with the shift times).
  */
 export function scheduledWorkHours(
   start: string | null,
   end: string | null,
-  breakMinutes = 0,
   fallbackHours = 8,
 ): number {
   const span = start && end ? shiftSpanMinutes(start, end) : 0
   if (span <= 0) return fallbackHours
-  return Math.max(0, (span - (breakMinutes || 0)) / 60)
+  return span / 60
 }
 
 export function calculateHoursWorked(checkIn: string, checkOut: string): number {

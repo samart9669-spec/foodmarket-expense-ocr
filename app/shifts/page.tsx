@@ -15,15 +15,14 @@ interface Shift {
 
 const emptyForm = { name: '', start_time: '08:00', end_time: '17:00', regular_hours: 8, break_minutes: 60 }
 
-// Paid hours = the start-to-end span minus the unpaid break. Storing the raw
-// span here made OT start only after the break had been worked back, which
-// swallowed the first hour of overtime every day.
-function calcHours(start: string, end: string, breakMinutes = 0) {
+// Hours the shift covers, start to end. The daily wage buys the whole shift,
+// so the break stays inside it and is never deducted.
+function calcHours(start: string, end: string) {
   const [sh, sm] = start.split(':').map(Number)
   const [eh, em] = end.split(':').map(Number)
   let mins = (eh * 60 + em) - (sh * 60 + sm)
   if (mins < 0) mins += 24 * 60
-  return Math.max(0, Math.round(((mins - (breakMinutes || 0)) / 60) * 10) / 10)
+  return Math.round((mins / 60) * 10) / 10
 }
 
 export default function ShiftsPage() {
@@ -48,16 +47,7 @@ export default function ShiftsPage() {
   useEffect(() => { fetchShifts() }, [])
 
   const updateHours = (start: string, end: string) => {
-    setForm((f) => ({ ...f, start_time: start, end_time: end, regular_hours: calcHours(start, end, f.break_minutes) }))
-  }
-
-  // Changing the break changes the paid hours too
-  const updateBreak = (breakMinutes: number) => {
-    setForm((f) => ({
-      ...f,
-      break_minutes: breakMinutes,
-      regular_hours: calcHours(f.start_time, f.end_time, breakMinutes),
-    }))
+    setForm((f) => ({ ...f, start_time: start, end_time: end, regular_hours: calcHours(start, end) }))
   }
 
   const openAdd = () => {
@@ -181,7 +171,7 @@ export default function ShiftsPage() {
                 max={24}
                 step="any"
               />
-              <span className="text-sm text-gray-500">ชั่วโมง (คำนวณอัตโนมัติจากเวลาเข้า-ออก หักเวลาพักแล้ว)</span>
+              <span className="text-sm text-gray-500">ชั่วโมง (คำนวณอัตโนมัติจากเวลาเข้า-ออก)</span>
             </div>
           </div>
 
@@ -192,17 +182,18 @@ export default function ShiftsPage() {
                 type="number"
                 className="input-field w-32"
                 value={form.break_minutes}
-                onChange={(e) => updateBreak(Number(e.target.value))}
+                onChange={(e) => setForm({ ...form, break_minutes: Number(e.target.value) })}
                 min={0}
                 max={120}
                 step="any"
               />
-              <span className="text-sm text-gray-500">นาที</span>
+              <span className="text-sm text-gray-500">นาที (สำหรับดูเท่านั้น ไม่หักออกจากค่าแรง)</span>
             </div>
           </div>
 
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-700">
-            <p>ทำงานเกิน <strong>{form.regular_hours} ชั่วโมง</strong> (ไม่รวมเวลาพัก {form.break_minutes} นาที) จะนับเป็น OT อัตโนมัติ ทีละ 30 นาที</p>
+            <p>ค่าแรงรายวันคิดเป็น <strong>ต่อกะ</strong> ไม่ได้คิดรายชั่วโมง และไม่หักเวลาพัก</p>
+            <p className="mt-1">ทำงานเลย <strong>{form.end_time} น.</strong> (เกิน {form.regular_hours} ชั่วโมง) จะนับเป็น OT อัตโนมัติ ทีละ 30 นาที ไม่ถึง 30 นาที ไม่นับ</p>
           </div>
 
           {error && <p className="text-red-600 text-sm">{error}</p>}

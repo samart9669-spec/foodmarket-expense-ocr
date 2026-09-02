@@ -119,7 +119,7 @@ export default function RecalcStatusPage() {
         <p className="text-sm text-gray-500 mt-1">
           คำนวณสถานะ &quot;มาสาย / ตรงเวลา&quot; ของรายการเข้างานที่บันทึกไว้แล้วใหม่
           ตามเวลาเข้ากะและจำนวนนาทีผ่อนผันของแต่ละแผนก
-          พร้อมปรับชั่วโมง OT ที่เก็บเป็นรายนาทีให้เป็นราย 30 นาที (ไม่ถึง 30 นาที ไม่นับ)
+          พร้อมคำนวณชั่วโมง OT ใหม่จากเวลาเข้า-ออกเทียบกับช่วงกะ (ไม่หักเวลาพัก) นับทีละ 30 นาที ไม่ถึง 30 นาที ไม่นับ
           รายการที่เป็น ลา ขาดงาน หรือครึ่งวัน จะไม่ถูกแก้ไข
         </p>
       </div>
@@ -173,7 +173,7 @@ export default function RecalcStatusPage() {
             { label: 'ต้องแก้ไข', value: changes.length },
             { label: 'เปลี่ยนเป็นมาสาย', value: toLate },
             { label: 'เปลี่ยนเป็นตรงเวลา', value: toPresent },
-            { label: 'ปรับ OT เป็นราย 30 นาที', value: otFixed },
+            { label: 'ปรับชั่วโมง OT', value: otFixed },
           ].map(s => (
             <div key={s.label} className="bg-white border border-gray-200 rounded-xl px-4 py-3">
               <div className="text-xs text-gray-500">{s.label}</div>
