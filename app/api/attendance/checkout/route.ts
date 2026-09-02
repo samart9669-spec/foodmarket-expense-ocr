@@ -1,5 +1,5 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
-import { getTodayString, calculateHoursWorked, calculateOTHours, getBangkokDateTimeString, getBangkokMinutesOfDay, isOTEligible } from '@/lib/utils'
+import { getTodayString, calculateHoursWorked, calculateOTHours, getBangkokDateTimeString, getCurrentTimeString, minutesFromScheduled, isOTEligible } from '@/lib/utils'
 import { getGeoTarget, validateGeoPosition } from '@/lib/geo'
 import { isOfficeEmployee } from '@/lib/auth-server'
 import { ensureAttendanceApprovedColumn, ensureAttendanceStatusColumns, getApprovedOffsite } from '@/lib/db-tables'
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
     if (geoError) return Response.json(geoError, { status: 422 })
 
     const checkOutTime = getBangkokDateTimeString()
-    const nowMinutes = getBangkokMinutesOfDay()
+    const nowHHMM = getCurrentTimeString().slice(0, 5)
 
     const totalHours = calculateHoursWorked(existing.check_in, checkOutTime)
     const regularHours = Math.min(totalHours, 8)
@@ -94,12 +94,11 @@ export async function POST(request: NextRequest) {
     }
     if (!endTimeStr && (employee as any).work_end) endTimeStr = String((employee as any).work_end)
 
+    // Negative means before the scheduled end — normalised so a checkout just
+    // after midnight on a day shift is not mistaken for leaving early.
     let earlyOut = 0
-    if (endTimeStr) {
-      const [eh, em] = endTimeStr.split(':').map(Number)
-      if (!Number.isNaN(eh) && nowMinutes < eh * 60 + (em || 0)) {
-        earlyOut = 1
-      }
+    if (endTimeStr && minutesFromScheduled(endTimeStr, nowHHMM) < 0) {
+      earlyOut = 1
     }
 
     // Head office staff skip the daily time-approval step — record as approved

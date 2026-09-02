@@ -4,7 +4,7 @@ export const runtime = 'edge'
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { getAuthHeaders, roundOTToHalfHour, isOTEligible } from '@/lib/utils'
+import { getAuthHeaders, roundOTToHalfHour, isOTEligible, lateMinutes } from '@/lib/utils'
 
 interface ShiftInfo {
   id: string; name: string; start_time: string; end_time: string
@@ -73,10 +73,12 @@ function computeRow(row: AttendanceRow, settings: Record<string, string>): Atten
   const workMins = calcMinutesDiff(row.check_in, row.check_out)
   const actual_hours = workMins > 0 ? Math.max(0, (workMins - breakMins) / 60) : 0
 
-  // Late only once past the department's grace period
+  // Late only when the check-in is past the shift start plus the department's
+  // grace — arriving early is never late.
   const grace = parseInt(settings[`late_grace_${row.department}`] ?? '15') || 0
-  const rawLate = row.shift_start ? Math.max(0, calcMinutesDiff(row.shift_start, row.check_in)) : 0
-  const lateMins = rawLate > grace ? rawLate : 0
+  const lateMins = row.shift_start && row.check_in
+    ? lateMinutes(row.shift_start, row.check_in, grace)
+    : 0
   const regularHours = row.regular_hours_shift || 8
   // OT: daily-rate staff only, counted in whole 30-minute blocks
   const ot_hours = isOTEligible(row.salary_type)

@@ -67,6 +67,32 @@ export function getBangkokMinutesOfDay(): number {
   return now.getUTCHours() * 60 + now.getUTCMinutes()
 }
 
+/**
+ * Minutes between a scheduled time and the actual one, both "HH:MM".
+ * Negative means early. The result is normalised to ±12 hours so an early
+ * check-in reads as a small negative rather than wrapping to nearly a full
+ * day, while a check-in past midnight on a night shift still reads as late.
+ */
+export function minutesFromScheduled(scheduled: string, actual: string): number {
+  if (!scheduled || !actual) return 0
+  // Accepts "HH:MM", "HH:MM:SS" or a full "YYYY-MM-DD HH:MM:SS" timestamp
+  const a = scheduled.match(/(\d{1,2}):(\d{2})/)
+  const b = actual.match(/(\d{1,2}):(\d{2})/)
+  if (!a || !b) return 0
+  const [sh, sm] = [Number(a[1]), Number(a[2])]
+  const [ah, am] = [Number(b[1]), Number(b[2])]
+  let diff = (ah * 60 + am) - (sh * 60 + sm)
+  if (diff > 720) diff -= 1440
+  if (diff < -720) diff += 1440
+  return diff
+}
+
+/** Minutes late (0 when on time or early), given the department's grace. */
+export function lateMinutes(scheduledStart: string, actualCheckIn: string, graceMinutes = 0): number {
+  const diff = minutesFromScheduled(scheduledStart, actualCheckIn)
+  return diff > graceMinutes ? diff : 0
+}
+
 export function calculateHoursWorked(checkIn: string, checkOut: string): number {
   if (!checkIn || !checkOut) return 0
   const inTime = new Date(checkIn)

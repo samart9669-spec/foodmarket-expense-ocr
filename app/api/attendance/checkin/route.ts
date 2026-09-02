@@ -1,5 +1,5 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
-import { generateId, getTodayString, getBangkokDateTimeString, getBangkokMinutesOfDay } from '@/lib/utils'
+import { generateId, getTodayString, getBangkokDateTimeString, getCurrentTimeString, lateMinutes } from '@/lib/utils'
 import { getGeoTarget, validateGeoPosition } from '@/lib/geo'
 import { isOfficeEmployee } from '@/lib/auth-server'
 import { ensureAttendanceApprovedColumn, ensureAttendanceStatusColumns, getApprovedOffsite } from '@/lib/db-tables'
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     const geoError = validateGeoPosition(geoTarget, latitude, longitude)
     if (geoError) return Response.json(geoError, { status: 422 })
     const checkInTime = getBangkokDateTimeString()
-    const nowMinutes = getBangkokMinutesOfDay()
+    const nowHHMM = getCurrentTimeString().slice(0, 5)
 
     const existing = await db.prepare('SELECT * FROM attendance WHERE employee_id = ? AND date = ?')
       .bind(employee_id, today).first() as any
@@ -87,18 +87,17 @@ export async function POST(request: NextRequest) {
       for (const row of (settingsRes.results || []) as any[]) settings[row.key] = row.value
       const grace = graceMinutesFor(employee, settings)
 
+      // Late only past the scheduled start plus grace; arriving early never is
       let status = 'present'
+      let scheduledStart: string | null = null
       if (effectiveShiftId) {
         const shift = await db.prepare('SELECT * FROM shifts WHERE id = ?').bind(effectiveShiftId).first() as any
-        if (shift) {
-          const [h, m] = shift.start_time.split(':').map(Number)
-          if (nowMinutes > h * 60 + m + grace) status = 'late'
-        }
+        if (shift?.start_time) scheduledStart = String(shift.start_time)
       } else if (employee.work_start) {
         // No shift — fixed personal schedule (e.g. head office 08:00-18:00)
-        const [h, m] = String(employee.work_start).split(':').map(Number)
-        if (!Number.isNaN(h) && nowMinutes > h * 60 + (m || 0) + grace) status = 'late'
+        scheduledStart = String(employee.work_start)
       }
+      if (scheduledStart && lateMinutes(scheduledStart, nowHHMM, grace) > 0) status = 'late'
       const id = generateId()
       await db.prepare(`
         INSERT INTO attendance (id, employee_id, date, shift_id, check_in, check_in_method, sales_point_id, status, check_in_lat, check_in_lng, approved, offsite_request_id)
