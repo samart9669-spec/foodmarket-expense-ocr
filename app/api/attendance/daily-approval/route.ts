@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
   try {
     const [empResult, attResult, settingsResult, shiftsResult] = await Promise.all([
       db.prepare(`
-        SELECT e.id, e.name, e.daily_rate, e.employee_type, e.salary_type, e.job_title,
+        SELECT e.id, e.name, e.daily_rate, e.ot_rate, e.employee_type, e.salary_type, e.job_title,
                s.id as shift_id, s.name as shift_name,
                s.start_time as shift_start, s.end_time as shift_end,
                s.regular_hours, s.break_minutes
@@ -127,6 +127,9 @@ export async function POST(request: NextRequest) {
         ? roundOTToHalfHour(Number(rec.ot_hours) || 0)
         : 0
 
+      // Wages are paid in whole baht — never store satang
+      const netPay = Math.round(Number(rec.net_pay) || 0)
+
       if (rec.attendance_id) {
         await db.prepare(`
           UPDATE attendance SET
@@ -142,7 +145,7 @@ export async function POST(request: NextRequest) {
           rec.check_in, rec.check_out,
           rec.day_type, rec.regular_hours, otHours,
           rec.food_allowance, rec.split_shift_allowance,
-          rec.cash_advance, rec.net_pay,
+          rec.cash_advance, netPay,
           rec.status, rec.notes, approved,
           rec.attendance_id,
         ).run()
@@ -160,7 +163,7 @@ export async function POST(request: NextRequest) {
           rec.check_in, rec.check_out,
           rec.day_type, rec.regular_hours, otHours,
           rec.food_allowance, rec.split_shift_allowance,
-          rec.cash_advance, rec.net_pay,
+          rec.cash_advance, netPay,
           rec.status, rec.notes, approved,
         ).run()
       }

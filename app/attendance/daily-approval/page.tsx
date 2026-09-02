@@ -16,6 +16,7 @@ interface AttendanceRow {
   employee_id: string
   name: string
   daily_rate: number
+  ot_rate: number
   salary_type: string
   department: string
   shift_id: string | null
@@ -97,13 +98,19 @@ function computeRow(row: AttendanceRow, settings: Record<string, string>): Atten
     ? 'ot_multiplier_weekend'
     : 'ot_multiplier_weekday'
   const otMultiplier = parseFloat(settings[otMultiplierKey] || '1.5') || 1.5
-  const otRate = row.daily_rate / (regularHours || 8)
+  // The employee's configured OT rate wins — that is what the payroll run uses,
+  // so both screens show the same money. Only when it is unset is the rate
+  // derived from the daily wage and multiplied by the day-type factor.
+  const otPayPerHour = row.ot_rate > 0
+    ? row.ot_rate
+    : (row.daily_rate / (regularHours || 8)) * otMultiplier
 
   const base = row.daily_rate * multiplier
-  const otPay = ot_hours * otRate * otMultiplier
-  const net_pay = Math.max(0,
+  // Wages are paid in whole baht — a half-hour OT block must not leave satang
+  const otPay = Math.round(ot_hours * otPayPerHour)
+  const net_pay = Math.max(0, Math.round(
     base + otPay + row.food_allowance + row.split_shift_allowance - row.cash_advance
-  )
+  ))
 
   const status = !row.check_in ? 'absent'
     : lateMins > 0 ? 'late'
@@ -145,6 +152,7 @@ export default function DailyApprovalPage() {
           employee_id: emp.id,
           name: emp.name,
           daily_rate: emp.daily_rate || 0,
+          ot_rate: emp.ot_rate || 0,
           salary_type: emp.salary_type || 'daily',
           department: emp.department || 'kitchen',
           shift_id: emp.shift_id || defaultShift?.id || null,
@@ -217,7 +225,7 @@ export default function DailyApprovalPage() {
           food_allowance: r.food_allowance,
           split_shift_allowance: r.split_shift_allowance,
           cash_advance: r.cash_advance,
-          net_pay: parseFloat(r.net_pay.toFixed(2)),
+          net_pay: Math.round(r.net_pay),
           notes: r.notes,
           status: r.status,
         }))
@@ -256,7 +264,8 @@ export default function DailyApprovalPage() {
     totalNet: rows.reduce((s, r) => s + r.net_pay, 0),
   }
 
-  const fmt = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  // Every amount on this sheet is whole baht — show it that way
+  const fmt = (n: number) => Math.round(n).toLocaleString('th-TH')
 
   return (
     <div className="space-y-4">
@@ -339,6 +348,7 @@ export default function DailyApprovalPage() {
                   <th className="px-3 py-3 text-center w-24">เข้าจริง</th>
                   <th className="px-3 py-3 text-center w-24">ออกจริง</th>
                   <th className="px-3 py-3 text-center w-20">ชม.จริง</th>
+                  <th className="px-3 py-3 text-center w-16">OT<br/><span className="text-gray-400 normal-case font-normal">(ชม.)</span></th>
                   <th className="px-3 py-3 text-center w-16">สาย</th>
                   <th className="px-3 py-3 text-left w-36">สถานะวัน</th>
                   <th className="px-3 py-3 text-center w-20">ค่าอาหาร<br/><span className="text-gray-400 normal-case font-normal">(฿)</span></th>
@@ -383,6 +393,12 @@ export default function DailyApprovalPage() {
                       </td>
                       <td className="px-3 py-2 text-center">
                         <span className="font-mono text-sm">{row.actual_hours > 0 ? row.actual_hours.toFixed(2) : '-'}</span>
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        {/* OT is counted in whole 30-minute blocks */}
+                        {row.ot_hours > 0
+                          ? <span className="font-mono text-sm text-indigo-600 font-medium">{row.ot_hours.toFixed(1)}</span>
+                          : <span className="text-gray-300 text-xs">0</span>}
                       </td>
                       <td className="px-3 py-2 text-center">
                         {row.late_minutes > 0
@@ -436,7 +452,7 @@ export default function DailyApprovalPage() {
                   )
                 })}
                 {filtered.length === 0 && (
-                  <tr><td colSpan={14} className="text-center py-12 text-gray-400">ไม่พบข้อมูล</td></tr>
+                  <tr><td colSpan={15} className="text-center py-12 text-gray-400">ไม่พบข้อมูล</td></tr>
                 )}
               </tbody>
             </table>
