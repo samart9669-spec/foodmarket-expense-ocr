@@ -1,5 +1,6 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
-import { generateId, getTodayString, getBangkokDateTimeString, getCurrentTimeString, lateMinutes } from '@/lib/utils'
+import { generateId, getTodayString, getBangkokDateTimeString, getCurrentTimeString } from '@/lib/utils'
+import { attendanceStatusFor } from '@/lib/attendance-status'
 import { getGeoTarget, validateGeoPosition } from '@/lib/geo'
 import { isOfficeEmployee } from '@/lib/auth-server'
 import { ensureAttendanceApprovedColumn, ensureAttendanceStatusColumns, getApprovedOffsite } from '@/lib/db-tables'
@@ -64,40 +65,48 @@ export async function POST(request: NextRequest) {
     if (autoApprove) await ensureAttendanceApprovedColumn(db)
     await ensureAttendanceStatusColumns(db)
 
+    // Shift for the day: the one chosen at the scan, otherwise the one already
+    // on the record, otherwise the branch's default shift.
+    let effectiveShiftId: string | null = shift_id || existing?.shift_id || null
+    if (!effectiveShiftId && targetPointId) {
+      try {
+        const branch = await db.prepare('SELECT default_shift_id FROM sales_points WHERE id = ?')
+          .bind(targetPointId).first() as any
+        if (branch?.default_shift_id) effectiveShiftId = branch.default_shift_id
+      } catch {}
+    }
+
+    // Grace before counting as late is configured per department
+    const settingsRes = await db.prepare('SELECT key, value FROM payroll_settings').all()
+    const settings: Record<string, string> = {}
+    for (const row of (settingsRes.results || []) as any[]) settings[row.key] = row.value
+    const grace = graceMinutesFor(employee, settings)
+
+    // Scheduled start: the shift, or the employee's fixed personal schedule
+    // (e.g. head office 08:00-18:00) when they work no shift at all.
+    let scheduledStart: string | null = null
+    if (effectiveShiftId) {
+      const shift = await db.prepare('SELECT start_time FROM shifts WHERE id = ?').bind(effectiveShiftId).first() as any
+      if (shift?.start_time) scheduledStart = String(shift.start_time)
+    }
+    if (!scheduledStart && employee.work_start) scheduledStart = String(employee.work_start)
+
+    // Late only past the scheduled start plus grace; arriving early never is
+    const status = attendanceStatusFor({
+      scheduled_start: scheduledStart,
+      check_in: nowHHMM,
+      grace_minutes: grace,
+    }).status ?? 'present'
+
     if (existing) {
       if (existing.check_in) {
         return Response.json({ error: 'เช็คอินไปแล้ววันนี้', check_in: existing.check_in }, { status: 409 })
       }
-      await db.prepare('UPDATE attendance SET check_in=?, check_in_method=?, check_in_lat=?, check_in_lng=?, approved=MAX(COALESCE(approved,0), ?), offsite_request_id=COALESCE(?, offsite_request_id) WHERE id=?')
-        .bind(checkInTime, method, latitude ?? null, longitude ?? null, autoApprove, offsite?.id ?? null, existing.id).run()
+      // The status is written here too — a row pre-created by the daily
+      // approval sheet would otherwise keep its placeholder status forever.
+      await db.prepare('UPDATE attendance SET check_in=?, check_in_method=?, check_in_lat=?, check_in_lng=?, shift_id=COALESCE(shift_id, ?), status=?, approved=MAX(COALESCE(approved,0), ?), offsite_request_id=COALESCE(?, offsite_request_id) WHERE id=?')
+        .bind(checkInTime, method, latitude ?? null, longitude ?? null, effectiveShiftId, status, autoApprove, offsite?.id ?? null, existing.id).run()
     } else {
-      // Fall back to the branch's default shift when none was chosen
-      let effectiveShiftId: string | null = shift_id || null
-      if (!effectiveShiftId && targetPointId) {
-        try {
-          const branch = await db.prepare('SELECT default_shift_id FROM sales_points WHERE id = ?')
-            .bind(targetPointId).first() as any
-          if (branch?.default_shift_id) effectiveShiftId = branch.default_shift_id
-        } catch {}
-      }
-
-      // Grace before counting as late is configured per department
-      const settingsRes = await db.prepare('SELECT key, value FROM payroll_settings').all()
-      const settings: Record<string, string> = {}
-      for (const row of (settingsRes.results || []) as any[]) settings[row.key] = row.value
-      const grace = graceMinutesFor(employee, settings)
-
-      // Late only past the scheduled start plus grace; arriving early never is
-      let status = 'present'
-      let scheduledStart: string | null = null
-      if (effectiveShiftId) {
-        const shift = await db.prepare('SELECT * FROM shifts WHERE id = ?').bind(effectiveShiftId).first() as any
-        if (shift?.start_time) scheduledStart = String(shift.start_time)
-      } else if (employee.work_start) {
-        // No shift — fixed personal schedule (e.g. head office 08:00-18:00)
-        scheduledStart = String(employee.work_start)
-      }
-      if (scheduledStart && lateMinutes(scheduledStart, nowHHMM, grace) > 0) status = 'late'
       const id = generateId()
       await db.prepare(`
         INSERT INTO attendance (id, employee_id, date, shift_id, check_in, check_in_method, sales_point_id, status, check_in_lat, check_in_lng, approved, offsite_request_id)

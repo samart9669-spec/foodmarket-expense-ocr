@@ -87,9 +87,18 @@ export async function POST(request: NextRequest) {
     // ออกก่อนเวลา: checkout before the scheduled end time (shift end or the
     // employee's fixed work_end)
     let endTimeStr: string | null = null
-    if (existing.shift_id) {
+    let shiftId: string | null = existing.shift_id
+    if (!shiftId) {
+      // No shift on the record — fall back to the branch's default shift
+      try {
+        const branch = await db.prepare('SELECT default_shift_id FROM sales_points WHERE id = ?')
+          .bind(existing.sales_point_id || employee.sales_point_id || '').first() as any
+        if (branch?.default_shift_id) shiftId = branch.default_shift_id
+      } catch {}
+    }
+    if (shiftId) {
       const shift = await db.prepare('SELECT end_time FROM shifts WHERE id = ?')
-        .bind(existing.shift_id).first() as any
+        .bind(shiftId).first() as any
       if (shift?.end_time) endTimeStr = shift.end_time
     }
     if (!endTimeStr && (employee as any).work_end) endTimeStr = String((employee as any).work_end)
