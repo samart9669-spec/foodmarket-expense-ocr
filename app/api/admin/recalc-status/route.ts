@@ -3,7 +3,7 @@ import { isAdminAuthorized } from '@/lib/admin-auth'
 import { attendanceStatusFor, isRecalculable } from '@/lib/attendance-status'
 import { graceMinutesFor, departmentOfEmployee, DEPARTMENT_LABELS } from '@/lib/diligence'
 import { ensureAttendanceStatusColumns } from '@/lib/db-tables'
-import { getTodayString, roundOTToHalfHour, isOTEligible, scheduledWorkHours } from '@/lib/utils'
+import { getTodayString, roundOTToHalfHour, isOTEligible, overtimeHours } from '@/lib/utils'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -107,13 +107,13 @@ async function loadChanges(db: any, from: string, to: string) {
     })
     if (!result.status) continue
 
-    // OT is rebuilt from the times worked against the shift's own hours — the
-    // daily wage covers the whole shift, so no break is deducted. Falls back to
-    // simply rounding whatever was stored when the schedule is unknown.
+    // OT is rebuilt as the time worked past the shift's end time — arriving
+    // early is not overtime. Falls back to simply rounding whatever was stored
+    // when the schedule or the checkout is unknown.
     const currentOt = Number(row.ot_hours) || 0
     const worked = hoursBetween(row.check_in, row.check_out)
-    const otFromTimes = worked !== null && scheduledStart && scheduledEnd
-      ? roundOTToHalfHour(Math.max(0, worked - scheduledWorkHours(scheduledStart, scheduledEnd, 8)))
+    const otFromTimes = worked !== null && scheduledEnd && row.check_out
+      ? overtimeHours(scheduledEnd, row.check_out, worked)
       : null
     const newOt = isOTEligible(row.salary_type)
       ? (otFromTimes ?? roundOTToHalfHour(currentOt))

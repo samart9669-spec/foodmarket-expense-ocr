@@ -4,7 +4,7 @@ export const runtime = 'edge'
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { getAuthHeaders, roundOTToHalfHour, isOTEligible, lateMinutes, scheduledWorkHours } from '@/lib/utils'
+import { getAuthHeaders, isOTEligible, lateMinutes, scheduledWorkHours, overtimeHours } from '@/lib/utils'
 
 interface ShiftInfo {
   id: string; name: string; start_time: string; end_time: string
@@ -81,14 +81,13 @@ function computeRow(row: AttendanceRow, settings: Record<string, string>): Atten
   const lateMins = row.shift_start && row.check_in
     ? lateMinutes(row.shift_start, row.check_in, grace)
     : 0
-  // OT starts once the shift's own hours are past — derived from the shift
-  // times so it stays right even when the stored regular_hours disagrees.
   const regularHours = scheduledWorkHours(
     row.shift_start, row.shift_end, row.regular_hours_shift || 8,
   )
-  // OT: daily-rate staff only, counted in whole 30-minute blocks
+  // OT counts only the time worked past the shift's END time — coming in early
+  // is not overtime. Daily-rate staff only, in whole 30-minute blocks.
   const ot_hours = isOTEligible(row.salary_type)
-    ? roundOTToHalfHour(Math.max(0, actual_hours - regularHours))
+    ? overtimeHours(row.shift_end, row.check_out, actual_hours)
     : 0
 
   const dayTypeObj = DAY_TYPES.find(d => d.value === row.day_type)

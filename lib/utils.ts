@@ -147,6 +147,29 @@ export function calculateOTHours(totalHours: number, regularHours: number = 8): 
   return roundOTToHalfHour(Math.max(0, totalHours - regularHours))
 }
 
+/**
+ * OT hours for a day: time worked past the shift's END time, in whole
+ * 30-minute blocks.
+ *
+ * Counting hours-worked against the shift length instead would pay OT for
+ * arriving early — someone on an 08:00-17:00 shift who scans in at 07:36 and
+ * out at 20:19 has 12.72 hours, which reads as 3.5 hours of OT when the real
+ * overtime is the 3:19 worked after 17:00.
+ *
+ * Capped at the hours actually worked, so a shift started after its own end
+ * time can never claim more OT than the person was present for.
+ */
+export function overtimeHours(
+  shiftEnd: string | null,
+  checkOut: string | null,
+  hoursWorked: number,
+): number {
+  if (!shiftEnd || !checkOut) return 0
+  const pastEnd = minutesFromScheduled(shiftEnd, checkOut)
+  if (pastEnd <= 0) return 0
+  return roundOTToHalfHour(Math.min(pastEnd / 60, Math.max(0, hoursWorked)))
+}
+
 export interface PayrollCalculation {
   days_worked: number
   day_rate_total: number

@@ -1,5 +1,5 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
-import { getTodayString, calculateHoursWorked, calculateOTHours, getBangkokDateTimeString, getCurrentTimeString, minutesFromScheduled, isOTEligible, scheduledWorkHours } from '@/lib/utils'
+import { getTodayString, calculateHoursWorked, getBangkokDateTimeString, getCurrentTimeString, minutesFromScheduled, isOTEligible, scheduledWorkHours, overtimeHours } from '@/lib/utils'
 import { getGeoTarget, validateGeoPosition } from '@/lib/geo'
 import { isOfficeEmployee } from '@/lib/auth-server'
 import { ensureAttendanceApprovedColumn, ensureAttendanceStatusColumns, getApprovedOffsite } from '@/lib/db-tables'
@@ -101,15 +101,15 @@ export async function POST(request: NextRequest) {
     if (!endTimeStr && (employee as any).work_end) endTimeStr = String((employee as any).work_end)
     if (!startTimeStr && (employee as any).work_start) startTimeStr = String((employee as any).work_start)
 
-    // The daily wage buys the whole shift, so the break is not deducted and OT
-    // starts once the shift's hours are past — the same rule the daily
+    // The daily wage buys the whole shift, so the break is not deducted. OT is
+    // only the time worked past the shift's end — the same rule the daily
     // approval sheet uses, so both agree.
     const totalHours = calculateHoursWorked(existing.check_in, checkOutTime)
     const shiftHours = scheduledWorkHours(startTimeStr, endTimeStr, 8)
     const regularHours = Math.min(totalHours, shiftHours)
     // OT: daily-rate staff only, paid in whole 30-minute blocks
     const otHours = isOTEligible((employee as any).salary_type)
-      ? calculateOTHours(totalHours, shiftHours)
+      ? overtimeHours(endTimeStr, nowHHMM, totalHours)
       : 0
 
     // Negative means before the scheduled end — normalised so a checkout just
