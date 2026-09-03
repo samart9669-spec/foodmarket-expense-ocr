@@ -58,11 +58,16 @@ export default function AttendanceScanPage() {
   const [loading, setLoading] = useState(false)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [scanMode, setScanMode] = useState<'checkin' | 'checkout'>('checkin')
+  // กะพิเศษ: an extra round on the same day needs its own shift, since the
+  // branch default belongs to the round already worked.
+  const [shifts, setShifts] = useState<Array<{ id: string; name: string; start_time: string; end_time: string }>>([])
+  const [selectedShift, setSelectedShift] = useState('')
   const { coords, status: gpsStatus } = useGeolocation()
 
   useEffect(() => {
     fetch('/api/employees').then((r) => r.json()).then((d: any) => setEmployees(d.employees || [])).catch(() => {})
     fetch('/api/sales-points').then((r) => r.json()).then((d: any) => setSalesPoints(d.salesPoints || [])).catch(() => {})
+    fetch('/api/shifts').then((r) => r.json()).then((d: any) => setShifts(d.shifts || [])).catch(() => {})
     const timer = setInterval(() => setCurrentTime(new Date()), 1000)
     return () => clearInterval(timer)
   }, [])
@@ -82,6 +87,7 @@ export default function AttendanceScanPage() {
             employee_id: employeeId,
             method: 'face',
             sales_point_id: selectedSalesPoint || undefined,
+            shift_id: selectedShift || undefined,
             latitude: coords?.lat,
             longitude: coords?.lng,
           }),
@@ -130,7 +136,7 @@ export default function AttendanceScanPage() {
         const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ employee_id: employee.id, method: 'qr', sales_point_id: selectedSalesPoint || undefined, latitude: coords?.lat, longitude: coords?.lng }),
+          body: JSON.stringify({ employee_id: employee.id, method: 'qr', sales_point_id: selectedSalesPoint || undefined, shift_id: selectedShift || undefined, latitude: coords?.lat, longitude: coords?.lng }),
         })
         const data = await res.json() as any
 
@@ -200,6 +206,22 @@ export default function AttendanceScanPage() {
               <option key={sp.id} value={sp.id}>{sp.name}</option>
             ))}
           </select>
+
+          <label className="label mt-3">กะทำงาน</label>
+          <select
+            className="input-field"
+            value={selectedShift}
+            onChange={(e) => setSelectedShift(e.target.value)}
+          >
+            <option value="">-- กะหลักของสาขา --</option>
+            {shifts.map((sh) => (
+              <option key={sh.id} value={sh.id}>{sh.name} ({sh.start_time}-{sh.end_time})</option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-500 mt-1">
+            เลือกกะเมื่อเข้าทำ &quot;กะพิเศษ&quot; นอกเหนือกะหลัก — เช็คอินรอบที่ 2 ของวันได้
+            หลังจากเช็คเอาต์รอบแรกแล้ว
+          </p>
         </div>
       )}
 

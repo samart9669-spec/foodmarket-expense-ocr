@@ -12,7 +12,13 @@ export async function ensureAttendanceApprovedColumn(db: any) {
 // early_out: checked out before scheduled end time (ออกก่อนเวลา)
 // offsite_request_id: links to the approved offsite-work request used that day
 export async function ensureAttendanceStatusColumns(db: any) {
-  for (const column of ['early_out INTEGER DEFAULT 0', 'offsite_request_id TEXT']) {
+  for (const column of [
+    'early_out INTEGER DEFAULT 0',
+    'offsite_request_id TEXT',
+    // กะพิเศษ — extra non-overlapping round of work on the same day
+    'session_no INTEGER DEFAULT 1',
+    'pay_wage INTEGER DEFAULT 1',
+  ]) {
     try {
       await db.prepare(`ALTER TABLE attendance ADD COLUMN ${column}`).run()
     } catch {

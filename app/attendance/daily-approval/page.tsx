@@ -15,6 +15,10 @@ interface AttendanceRow {
   id: string | null
   employee_id: string
   name: string
+  /** Round of the day: 1 = กะหลัก, 2+ = กะพิเศษ */
+  session_no: number
+  /** Whether this round pays a shift wage of its own */
+  pay_wage: boolean
   daily_rate: number
   ot_rate: number
   salary_type: string
@@ -109,7 +113,8 @@ function computeRow(row: AttendanceRow, settings: Record<string, string>): Atten
     ? row.ot_rate
     : (row.daily_rate / (regularHours || 8)) * otMultiplier
 
-  const base = row.daily_rate * multiplier
+  // An extra round can be set to pay OT only, so the daily rate is not paid twice
+  const base = row.pay_wage ? row.daily_rate * multiplier : 0
   // Wages are paid in whole baht — a half-hour OT block must not leave satang
   const otPay = Math.round(ot_hours * otPayPerHour)
   const net_pay = Math.max(0, Math.round(
@@ -146,41 +151,49 @@ export default function DailyApprovalPage() {
       setShifts(data.shifts || [])
       const defaultShift = (data.shifts || [])[0] as ShiftInfo | undefined
 
-      const mapped: AttendanceRow[] = (data.employees || []).map((emp: any) => {
-        const att = emp.attendance
-        const shiftStart = emp.shift_start || defaultShift?.start_time || '08:00'
-        const shiftEnd = emp.shift_end || defaultShift?.end_time || '17:00'
-        const breakMins = emp.break_minutes ?? defaultShift?.break_minutes ?? 60
-        const raw: AttendanceRow = {
-          id: att?.id || null,
-          employee_id: emp.id,
-          name: emp.name,
-          daily_rate: emp.daily_rate || 0,
-          ot_rate: emp.ot_rate || 0,
-          salary_type: emp.salary_type || 'daily',
-          department: emp.department || 'kitchen',
-          shift_id: emp.shift_id || defaultShift?.id || null,
-          shift_name: emp.shift_name || defaultShift?.name || '',
-          shift_start: shiftStart,
-          shift_end: shiftEnd,
-          regular_hours_shift: emp.regular_hours || defaultShift?.regular_hours || 8,
-          break_minutes: breakMins,
-          check_in: att ? storedToHHMM(att.check_in) : '',
-          check_out: att ? storedToHHMM(att.check_out) : '',
-          day_type: att?.day_type || 'normal',
-          food_allowance: att?.food_allowance ?? parseFloat(s.allowance_food || '0'),
-          split_shift_allowance: att?.split_shift_allowance ?? parseFloat(s.allowance_split_shift || '0'),
-          cash_advance: att?.cash_advance ?? 0,
-          notes: att?.notes || '',
-          approved: !!att?.approved,
-          actual_hours: 0,
-          late_minutes: 0,
-          ot_hours: 0,
-          net_pay: 0,
-          status: 'absent',
+      // One row per round worked. A normal day is a single round; a กะพิเศษ
+      // adds another, so an employee can appear more than once.
+      const mapped: AttendanceRow[] = []
+      for (const emp of (data.employees || [])) {
+        const records: any[] = emp.attendances?.length ? emp.attendances : [null]
+        for (const att of records) {
+          // The round's own shift wins; otherwise the employee's branch default
+          const shiftStart = att?.att_shift_start || emp.shift_start || defaultShift?.start_time || '08:00'
+          const shiftEnd = att?.att_shift_end || emp.shift_end || defaultShift?.end_time || '17:00'
+          const breakMins = att?.att_break_minutes ?? emp.break_minutes ?? defaultShift?.break_minutes ?? 60
+          const raw: AttendanceRow = {
+            id: att?.id || null,
+            employee_id: emp.id,
+            name: emp.name,
+            session_no: Number(att?.session_no) || 1,
+            pay_wage: att ? att.pay_wage !== 0 : true,
+            daily_rate: emp.daily_rate || 0,
+            ot_rate: emp.ot_rate || 0,
+            salary_type: emp.salary_type || 'daily',
+            department: emp.department || 'kitchen',
+            shift_id: att?.att_shift_id || emp.shift_id || defaultShift?.id || null,
+            shift_name: att?.att_shift_name || emp.shift_name || defaultShift?.name || '',
+            shift_start: shiftStart,
+            shift_end: shiftEnd,
+            regular_hours_shift: att?.att_regular_hours || emp.regular_hours || defaultShift?.regular_hours || 8,
+            break_minutes: breakMins,
+            check_in: att ? storedToHHMM(att.check_in) : '',
+            check_out: att ? storedToHHMM(att.check_out) : '',
+            day_type: att?.day_type || 'normal',
+            food_allowance: att?.food_allowance ?? parseFloat(s.allowance_food || '0'),
+            split_shift_allowance: att?.split_shift_allowance ?? parseFloat(s.allowance_split_shift || '0'),
+            cash_advance: att?.cash_advance ?? 0,
+            notes: att?.notes || '',
+            approved: !!att?.approved,
+            actual_hours: 0,
+            late_minutes: 0,
+            ot_hours: 0,
+            net_pay: 0,
+            status: 'absent',
+          }
+          mapped.push(computeRow(raw, s))
         }
-        return computeRow(raw, s)
-      })
+      }
       setRows(mapped)
     } finally {
       setLoading(false)
@@ -211,6 +224,43 @@ export default function DailyApprovalPage() {
     })
   }
 
+  // กะพิเศษ: another round of work on the same day for the same person. The
+  // times are entered by hand here; a scan on the day creates one on its own.
+  const addExtraRound = (idx: number) => {
+    setRows(prev => {
+      const src = prev[idx]
+      const rounds = prev.filter(r => r.employee_id === src.employee_id)
+      const nextNo = rounds.reduce((m, r) => Math.max(m, r.session_no), 0) + 1
+      const extra = computeRow({
+        ...src,
+        id: null,
+        session_no: nextNo,
+        pay_wage: true,
+        check_in: '',
+        check_out: '',
+        notes: '',
+        approved: false,
+        food_allowance: 0,
+        split_shift_allowance: 0,
+        cash_advance: 0,
+      }, settings)
+      // Insert right after the employee's last round so they stay together
+      const lastIdx = prev.map(r => r.employee_id).lastIndexOf(src.employee_id)
+      const next = [...prev]
+      next.splice(lastIdx + 1, 0, extra)
+      return next
+    })
+  }
+
+  const removeRound = (idx: number) => {
+    const row = rows[idx]
+    if (row.id) {
+      alert('รอบนี้บันทึกไว้แล้ว ให้ลบเวลาเข้า-ออกแทน')
+      return
+    }
+    setRows(prev => prev.filter((_, i) => i !== idx))
+  }
+
   const handleSave = async (action: 'draft' | 'approve') => {
     setSaving(true)
     setSavedMsg('')
@@ -221,6 +271,8 @@ export default function DailyApprovalPage() {
           employee_id: r.employee_id,
           attendance_id: r.id,
           shift_id: r.shift_id,
+          session_no: r.session_no,
+          pay_wage: r.pay_wage ? 1 : 0,
           check_in: r.check_in ? hhmmToStored(date, r.check_in) : null,
           check_out: r.check_out ? hhmmToStored(date, r.check_out) : null,
           day_type: r.day_type,
@@ -255,14 +307,19 @@ export default function DailyApprovalPage() {
     if (statusFilter === 'absent') return !r.check_in
     if (statusFilter === 'late') return r.status === 'late'
     if (statusFilter === 'approved') return r.approved
+    if (statusFilter === 'extra') return r.session_no > 1
     return true
   })
 
+  // Headcounts are per person; money is per round, so an extra shift adds up
+  const allPeople = new Set(rows.map(r => r.employee_id))
+  const peopleWithCheckIn = new Set(rows.filter(r => r.check_in).map(r => r.employee_id))
   const summary = {
-    present: rows.filter(r => r.check_in).length,
-    absent: rows.filter(r => !r.check_in).length,
+    present: peopleWithCheckIn.size,
+    absent: allPeople.size - peopleWithCheckIn.size,
     late: rows.filter(r => r.status === 'late').length,
-    totalBase: rows.reduce((s, r) => s + (r.check_in ? r.daily_rate : 0), 0),
+    extraRounds: rows.filter(r => r.session_no > 1 && r.check_in).length,
+    totalBase: rows.reduce((s, r) => s + (r.check_in && r.pay_wage ? r.daily_rate : 0), 0),
     totalAllowance: rows.reduce((s, r) => s + r.food_allowance + r.split_shift_allowance, 0),
     totalDeduction: rows.reduce((s, r) => s + r.cash_advance, 0),
     totalNet: rows.reduce((s, r) => s + r.net_pay, 0),
@@ -313,17 +370,19 @@ export default function DailyApprovalPage() {
             <option value="absent">ขาดงาน ({summary.absent})</option>
             <option value="late">มาสาย ({summary.late})</option>
             <option value="approved">อนุมัติแล้ว ({rows.filter(r => r.approved).length})</option>
+            <option value="extra">กะพิเศษ ({summary.extraRounds})</option>
           </select>
         </div>
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
         {[
-          { label: 'พนักงานทั้งหมด', value: rows.length + ' คน', color: 'bg-blue-50 text-blue-800 border-blue-200' },
+          { label: 'พนักงานทั้งหมด', value: allPeople.size + ' คน', color: 'bg-blue-50 text-blue-800 border-blue-200' },
           { label: 'มางาน', value: summary.present + ' คน', color: 'bg-green-50 text-green-800 border-green-200' },
           { label: 'ขาดงาน', value: summary.absent + ' คน', color: 'bg-red-50 text-red-800 border-red-200' },
           { label: 'มาสาย', value: summary.late + ' คน', color: 'bg-yellow-50 text-yellow-800 border-yellow-200' },
+          { label: 'กะพิเศษ', value: summary.extraRounds + ' รอบ', color: 'bg-violet-50 text-violet-800 border-violet-200' },
           { label: 'ค่าแรงรวม', value: '฿' + fmt(summary.totalBase), color: 'bg-indigo-50 text-indigo-800 border-indigo-200' },
           { label: 'เบี้ยเลี้ยงรวม', value: '฿' + fmt(summary.totalAllowance), color: 'bg-purple-50 text-purple-800 border-purple-200' },
           { label: 'ยอดสุทธิรวม', value: '฿' + fmt(summary.totalNet), color: 'bg-emerald-50 text-emerald-800 border-emerald-200 font-bold' },
@@ -368,10 +427,38 @@ export default function DailyApprovalPage() {
                   const realIdx = rows.indexOf(row)
                   const isAbsent = !row.check_in
                   return (
-                    <tr key={row.employee_id}
+                    <tr key={row.id || `${row.employee_id}#${row.session_no}`}
                       className={`transition-colors ${row.approved ? 'bg-green-50' : isAbsent ? 'bg-red-50 opacity-60' : 'hover:bg-gray-50'}`}>
                       <td className="px-3 py-2 text-xs text-gray-500 font-mono">{row.employee_id.slice(0, 8)}</td>
-                      <td className="px-3 py-2 font-medium text-gray-900">{row.name}</td>
+                      <td className="px-3 py-2 font-medium text-gray-900">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span>{row.name}</span>
+                          {row.session_no > 1 && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 border border-violet-200 font-semibold">
+                              กะพิเศษ รอบ {row.session_no}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => addExtraRound(realIdx)}
+                            className="text-[11px] text-blue-600 hover:underline"
+                            title="เพิ่มกะพิเศษให้พนักงานคนนี้ในวันเดียวกัน"
+                          >
+                            + กะพิเศษ
+                          </button>
+                          {row.session_no > 1 && !row.id && (
+                            <button
+                              type="button"
+                              onClick={() => removeRound(realIdx)}
+                              className="text-[11px] text-red-500 hover:underline"
+                            >
+                              ลบรอบ
+                            </button>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-3 py-2">
                         <select
                           value={row.shift_id || ''}
@@ -410,6 +497,16 @@ export default function DailyApprovalPage() {
                           : <span className="text-gray-300 text-xs">0</span>}
                       </td>
                       <td className="px-3 py-2">
+                        {row.session_no > 1 && (
+                          <select
+                            value={row.pay_wage ? '1' : '0'}
+                            onChange={e => update(realIdx, { pay_wage: e.target.value === '1' })}
+                            className="w-full border border-violet-200 bg-violet-50 rounded-lg px-2 py-1 text-xs mb-1 focus:outline-none focus:ring-1 focus:ring-violet-400"
+                          >
+                            <option value="1">จ่ายค่าแรงเต็มกะ</option>
+                            <option value="0">ไม่จ่ายค่าแรง (คิด OT อย่างเดียว)</option>
+                          </select>
+                        )}
                         <select
                           value={row.day_type}
                           onChange={e => update(realIdx, { day_type: e.target.value })}
@@ -483,7 +580,7 @@ export default function DailyApprovalPage() {
           <div className="border-t md:border-t-0 md:border-l border-gray-700 md:pl-4 pt-2 md:pt-0">
             <p className="text-xs text-gray-400">ยอดสุทธิทั้งหมด</p>
             <p className="text-2xl font-bold text-emerald-400">฿{fmt(summary.totalNet)}</p>
-            <p className="text-xs text-gray-500 mt-0.5">{summary.present} คน มางาน จาก {rows.length} คน</p>
+            <p className="text-xs text-gray-500 mt-0.5">{summary.present} คน มางาน จาก {allPeople.size} คน{summary.extraRounds > 0 ? ` · กะพิเศษ ${summary.extraRounds} รอบ` : ''}</p>
           </div>
         </div>
       </div>

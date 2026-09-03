@@ -183,14 +183,17 @@ export interface PayrollCalculation {
 }
 
 export function calculatePayroll(
-  attendanceRecords: Array<{ regular_hours: number; ot_hours: number; status: string }>,
+  attendanceRecords: Array<{ regular_hours: number; ot_hours: number; status: string; pay_wage?: number }>,
   salesRecords: Array<{ amount: number }>,
   employee: { daily_rate: number; ot_rate: number; commission_rate: number; salary_type?: string },
   bonus: number = 0,
   deductions: number = 0
 ): PayrollCalculation {
-  const days_worked = attendanceRecords.filter((a) => a.status === 'present' || a.status === 'late' || a.status === 'half').length
-  const day_rate_total = attendanceRecords.reduce((sum, a) => {
+  // Each attendance row is one round of work. A กะพิเศษ adds a second round on
+  // the same date, and pays its own shift wage unless it was marked OT-only.
+  const paid = attendanceRecords.filter(a => a.pay_wage !== 0)
+  const days_worked = paid.filter((a) => a.status === 'present' || a.status === 'late' || a.status === 'half').length
+  const day_rate_total = paid.reduce((sum, a) => {
     if (a.status === 'half') return sum + employee.daily_rate * 0.5
     if (a.status === 'present' || a.status === 'late') return sum + employee.daily_rate
     return sum

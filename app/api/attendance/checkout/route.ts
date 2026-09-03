@@ -36,28 +36,38 @@ export async function POST(request: NextRequest) {
     }
 
     const today = getTodayString()
-    const existing = await db
-      .prepare('SELECT * FROM attendance WHERE employee_id = ? AND date = ?')
-      .bind(employee_id, today)
-      .first() as {
-        id: string
-        check_in: string | null
-        check_out: string | null
-        status: string
-        sales_point_id: string | null
-        shift_id: string | null
-      } | null
+    await ensureAttendanceStatusColumns(db)
 
-    if (!existing) {
+    // Close the round that is still open — with a กะพิเศษ there can be more
+    // than one round on the same day, so the latest open one is the target.
+    const roundsRes = await db
+      .prepare('SELECT * FROM attendance WHERE employee_id = ? AND date = ? ORDER BY COALESCE(session_no, 1) ASC')
+      .bind(employee_id, today)
+      .all()
+    const rounds = (roundsRes.results || []) as Array<{
+      id: string
+      session_no: number | null
+      check_in: string | null
+      check_out: string | null
+      status: string
+      sales_point_id: string | null
+      shift_id: string | null
+    }>
+
+    if (rounds.length === 0) {
       return Response.json({ error: 'ยังไม่ได้เช็คอินวันนี้' }, { status: 400 })
     }
 
-    if (!existing.check_in) {
-      return Response.json({ error: 'ยังไม่ได้เช็คอิน' }, { status: 400 })
-    }
+    const openRounds = rounds.filter(r => r.check_in && !r.check_out)
+    const existing = openRounds[openRounds.length - 1] || null
 
-    if (existing.check_out) {
-      return Response.json({ error: 'เช็คเอาต์ไปแล้ววันนี้', check_out: existing.check_out }, { status: 409 })
+    if (!existing) {
+      const withIn = rounds.filter(r => r.check_in)
+      if (withIn.length === 0) {
+        return Response.json({ error: 'ยังไม่ได้เช็คอิน' }, { status: 400 })
+      }
+      const last = withIn[withIn.length - 1]
+      return Response.json({ error: 'เช็คเอาต์ไปแล้ววันนี้', check_out: last.check_out }, { status: 409 })
     }
 
     // Approved offsite request for today overrides the normal location check
@@ -104,7 +114,7 @@ export async function POST(request: NextRequest) {
     // The daily wage buys the whole shift, so the break is not deducted. OT is
     // only the time worked past the shift's end — the same rule the daily
     // approval sheet uses, so both agree.
-    const totalHours = calculateHoursWorked(existing.check_in, checkOutTime)
+    const totalHours = calculateHoursWorked(existing.check_in || '', checkOutTime)
     const shiftHours = scheduledWorkHours(startTimeStr, endTimeStr, 8)
     const regularHours = Math.min(totalHours, shiftHours)
     // OT: daily-rate staff only, paid in whole 30-minute blocks
@@ -140,8 +150,11 @@ export async function POST(request: NextRequest) {
     return Response.json({
       success: true,
       early_out: earlyOut === 1,
+      session_no: Number(existing.session_no) || 1,
       offsite: offsite ? { location_name: offsite.location_name } : null,
-      message: earlyOut
+      message: (Number(existing.session_no) || 1) > 1
+        ? `เช็คเอาต์กะพิเศษ (รอบที่ ${existing.session_no}) สำเร็จ: ${employee.name}`
+        : earlyOut
         ? `เช็คเอาต์สำเร็จ (ออกก่อนเวลา ${endTimeStr}): ${employee.name}`
         : offsite
           ? `เช็คเอาต์สำเร็จ (นอกสถานที่: ${offsite.location_name}): ${employee.name}`

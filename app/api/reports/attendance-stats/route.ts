@@ -48,10 +48,16 @@ export async function GET(request: NextRequest) {
       `).bind(monthEnd, monthStart).all(),
     ])
 
+    // A day can hold more than one round of work (กะพิเศษ). The day counts once,
+    // and is "late" when any of its rounds was late.
     const attendanceByEmp = new Map<string, Map<string, string>>()
     for (const a of (attendanceRes.results || []) as any[]) {
       if (!attendanceByEmp.has(a.employee_id)) attendanceByEmp.set(a.employee_id, new Map())
-      attendanceByEmp.get(a.employee_id)!.set(a.date, a.status)
+      const byDate = attendanceByEmp.get(a.employee_id)!
+      const existing = byDate.get(a.date)
+      if (existing === 'late') continue
+      byDate.set(a.date, a.status === 'late' && existing ? 'late' : (existing || a.status))
+      if (a.status === 'late') byDate.set(a.date, 'late')
     }
 
     // Set of leave dates (clipped to month) per employee

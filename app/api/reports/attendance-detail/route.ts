@@ -40,11 +40,13 @@ export async function GET(request: NextRequest) {
     const [attendanceRes, leavesRes] = await Promise.all([
       db.prepare(`
         SELECT a.date, a.status, a.check_in, a.check_out, a.ot_hours, a.early_out,
+               COALESCE(a.session_no, 1) AS session_no,
                sp.name AS sales_point_name, o.location_name AS offsite_location
         FROM attendance a
         LEFT JOIN sales_points sp ON a.sales_point_id = sp.id
         LEFT JOIN offsite_requests o ON a.offsite_request_id = o.id
         WHERE a.employee_id = ? AND a.date >= ? AND a.date <= ?
+        ORDER BY COALESCE(a.session_no, 1) ASC
       `).bind(employeeId, monthStart, monthEnd).all(),
       db.prepare(`
         SELECT date_start, date_end, leave_type, reason, leave_unit, start_time, end_time, hours FROM leave_requests
@@ -54,8 +56,21 @@ export async function GET(request: NextRequest) {
       `).bind(employeeId, monthEnd, monthStart).all(),
     ])
 
+    // A day can hold more than one round (กะพิเศษ). The first round drives the
+    // day's own times; extra rounds are listed alongside and add to the OT.
     const attMap = new Map<string, any>()
-    for (const a of (attendanceRes.results || []) as any[]) attMap.set(a.date, a)
+    const extraByDate = new Map<string, any[]>()
+    for (const a of (attendanceRes.results || []) as any[]) {
+      const first = attMap.get(a.date)
+      if (!first) {
+        attMap.set(a.date, { ...a, ot_hours_total: a.ot_hours || 0 })
+        continue
+      }
+      first.ot_hours_total = (first.ot_hours_total || 0) + (a.ot_hours || 0)
+      // Any late round makes the day late
+      if (a.status === 'late') first.status = 'late'
+      ;(extraByDate.get(a.date) || extraByDate.set(a.date, []).get(a.date)!).push(a)
+    }
 
     const leaveMap = new Map<string, { leave_type: string; reason: string | null; leave_unit?: string; start_time?: string; end_time?: string; hours?: number }>()
     for (const l of (leavesRes.results || []) as any[]) {
@@ -104,7 +119,13 @@ export async function GET(request: NextRequest) {
         kind,
         check_in: att?.check_in ?? null,
         check_out: att?.check_out ?? null,
-        ot_hours: att?.ot_hours ?? null,
+        ot_hours: att ? (att.ot_hours_total ?? att.ot_hours ?? null) : null,
+        extra_rounds: (extraByDate.get(dateStr) || []).map((r: any) => ({
+          session_no: r.session_no,
+          check_in: r.check_in,
+          check_out: r.check_out,
+          ot_hours: r.ot_hours,
+        })),
         early_out: att?.early_out === 1,
         offsite_location: att?.offsite_location ?? null,
         sales_point_name: att?.sales_point_name ?? null,

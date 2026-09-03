@@ -174,6 +174,12 @@ export async function runMigrations(db: any): Promise<string[]> {
   await run('ALTER TABLE attendance ADD COLUMN approved INTEGER DEFAULT 0', 'attendance.approved')
   await run('ALTER TABLE attendance ADD COLUMN early_out INTEGER DEFAULT 0', 'attendance.early_out')
   await run('ALTER TABLE attendance ADD COLUMN offsite_request_id TEXT', 'attendance.offsite_request_id')
+  // กะพิเศษ: more than one round of work on the same day. Round 1 is the normal
+  // shift; a second, non-overlapping round gets session_no = 2 and so on.
+  await run('ALTER TABLE attendance ADD COLUMN session_no INTEGER DEFAULT 1', 'attendance.session_no')
+  // Whether this round pays a shift wage of its own (an extra round can be set
+  // to OT only, so the daily rate is not paid twice)
+  await run('ALTER TABLE attendance ADD COLUMN pay_wage INTEGER DEFAULT 1', 'attendance.pay_wage')
 
   // Offsite work requests
   await run(`

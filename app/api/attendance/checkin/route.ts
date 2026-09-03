@@ -57,18 +57,52 @@ export async function POST(request: NextRequest) {
     const checkInTime = getBangkokDateTimeString()
     const nowHHMM = getCurrentTimeString().slice(0, 5)
 
-    const existing = await db.prepare('SELECT * FROM attendance WHERE employee_id = ? AND date = ?')
-      .bind(employee_id, today).first() as any
-
     // Head office staff skip the daily time-approval step — record as approved
     const autoApprove = isOfficeEmployee(employee.job_title) ? 1 : 0
     if (autoApprove) await ensureAttendanceApprovedColumn(db)
     await ensureAttendanceStatusColumns(db)
 
-    // Shift for the day: the one chosen at the scan, otherwise the one already
-    // on the record, otherwise the branch's default shift.
+    // Every round of work recorded today. A normal day has one; a กะพิเศษ adds
+    // a second, non-overlapping round.
+    const roundsRes = await db.prepare(
+      'SELECT * FROM attendance WHERE employee_id = ? AND date = ? ORDER BY COALESCE(session_no, 1) ASC'
+    ).bind(employee_id, today).all()
+    const rounds = (roundsRes.results || []) as any[]
+
+    // A round still open (checked in, not yet out) blocks another check-in
+    const open = rounds.find(r => r.check_in && !r.check_out)
+    if (open) {
+      return Response.json({ error: 'เช็คอินไปแล้ววันนี้ กรุณาเช็คเอาต์ก่อน', check_in: open.check_in }, { status: 409 })
+    }
+
+    // A row with no check-in yet (pre-created by the approval sheet) is filled
+    // in; otherwise every round is closed and this scan opens a new one.
+    const existing = rounds.find(r => !r.check_in) || null
+    const closed = rounds.filter(r => r.check_out)
+    const lastClosed = closed.length > 0 ? closed[closed.length - 1] : null
+
+    // A new round may not overlap the previous one — a second scan right after
+    // checking out is a mistake, not an extra shift.
+    if (!existing && lastClosed) {
+      const lastOut = String(lastClosed.check_out || '')
+      if (lastOut && checkInTime <= lastOut) {
+        return Response.json({
+          error: `กะพิเศษต้องเริ่มหลังเวลาออกงานรอบก่อน (${lastOut.slice(11, 16)} น.)`,
+        }, { status: 409 })
+      }
+    }
+
+    const sessionNo = existing
+      ? (Number(existing.session_no) || 1)
+      : rounds.reduce((max, r) => Math.max(max, Number(r.session_no) || 1), 0) + 1
+
+    // Shift for this round: the one chosen at the scan, otherwise the one
+    // already on the record, otherwise the branch's default shift.
     let effectiveShiftId: string | null = shift_id || existing?.shift_id || null
-    if (!effectiveShiftId && targetPointId) {
+    // Only the first round of the day falls back to the branch's default shift.
+    // A กะพิเศษ is by definition not that shift, so it is left for the approver
+    // to set rather than being judged late against a shift already finished.
+    if (!effectiveShiftId && sessionNo === 1 && targetPointId) {
       try {
         const branch = await db.prepare('SELECT default_shift_id FROM sales_points WHERE id = ?')
           .bind(targetPointId).first() as any
@@ -89,7 +123,10 @@ export async function POST(request: NextRequest) {
       const shift = await db.prepare('SELECT start_time FROM shifts WHERE id = ?').bind(effectiveShiftId).first() as any
       if (shift?.start_time) scheduledStart = String(shift.start_time)
     }
-    if (!scheduledStart && employee.work_start) scheduledStart = String(employee.work_start)
+    // Only the first round is judged against the employee's fixed schedule
+    if (!scheduledStart && sessionNo === 1 && employee.work_start) {
+      scheduledStart = String(employee.work_start)
+    }
 
     // Late only past the scheduled start plus grace; arriving early never is
     const status = attendanceStatusFor({
@@ -99,9 +136,6 @@ export async function POST(request: NextRequest) {
     }).status ?? 'present'
 
     if (existing) {
-      if (existing.check_in) {
-        return Response.json({ error: 'เช็คอินไปแล้ววันนี้', check_in: existing.check_in }, { status: 409 })
-      }
       // The status is written here too — a row pre-created by the daily
       // approval sheet would otherwise keep its placeholder status forever.
       await db.prepare('UPDATE attendance SET check_in=?, check_in_method=?, check_in_lat=?, check_in_lng=?, shift_id=COALESCE(shift_id, ?), status=?, approved=MAX(COALESCE(approved,0), ?), offsite_request_id=COALESCE(?, offsite_request_id) WHERE id=?')
@@ -109,14 +143,20 @@ export async function POST(request: NextRequest) {
     } else {
       const id = generateId()
       await db.prepare(`
-        INSERT INTO attendance (id, employee_id, date, shift_id, check_in, check_in_method, sales_point_id, status, check_in_lat, check_in_lng, approved, offsite_request_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(id, employee_id, today, effectiveShiftId, checkInTime, method, sales_point_id || null, status, latitude ?? null, longitude ?? null, autoApprove, offsite?.id ?? null).run()
+        INSERT INTO attendance (id, employee_id, date, shift_id, check_in, check_in_method, sales_point_id, status, check_in_lat, check_in_lng, approved, offsite_request_id, session_no)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(id, employee_id, today, effectiveShiftId, checkInTime, method, sales_point_id || null, status, latitude ?? null, longitude ?? null, autoApprove, offsite?.id ?? null, sessionNo).run()
     }
+
+    const extraRound = sessionNo > 1
 
     return Response.json({
       success: true,
-      message: offsite
+      session_no: sessionNo,
+      extra_round: extraRound,
+      message: extraRound
+        ? `เช็คอินกะพิเศษ (รอบที่ ${sessionNo}) สำเร็จ: ${employee.name}`
+        : offsite
         ? `เช็คอินสำเร็จ (นอกสถานที่: ${offsite.location_name}): ${employee.name}`
         : `เช็คอินสำเร็จ: ${employee.name}`,
       employee_name: employee.name,
