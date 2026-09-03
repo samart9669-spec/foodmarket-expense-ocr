@@ -96,13 +96,15 @@ export async function POST(request: NextRequest) {
       ? (Number(existing.session_no) || 1)
       : rounds.reduce((max, r) => Math.max(max, Number(r.session_no) || 1), 0) + 1
 
+    // กะพิเศษ (round 2 and up) is overtime work, not a shift: it follows no
+    // schedule at all, so it carries no shift, is never late, and pays no
+    // shift wage — every hour of it is OT.
+    const extraRound = sessionNo > 1
+
     // Shift for this round: the one chosen at the scan, otherwise the one
     // already on the record, otherwise the branch's default shift.
-    let effectiveShiftId: string | null = shift_id || existing?.shift_id || null
-    // Only the first round of the day falls back to the branch's default shift.
-    // A กะพิเศษ is by definition not that shift, so it is left for the approver
-    // to set rather than being judged late against a shift already finished.
-    if (!effectiveShiftId && sessionNo === 1 && targetPointId) {
+    let effectiveShiftId: string | null = extraRound ? null : (shift_id || existing?.shift_id || null)
+    if (!effectiveShiftId && !extraRound && targetPointId) {
       try {
         const branch = await db.prepare('SELECT default_shift_id FROM sales_points WHERE id = ?')
           .bind(targetPointId).first() as any
@@ -124,7 +126,7 @@ export async function POST(request: NextRequest) {
       if (shift?.start_time) scheduledStart = String(shift.start_time)
     }
     // Only the first round is judged against the employee's fixed schedule
-    if (!scheduledStart && sessionNo === 1 && employee.work_start) {
+    if (!scheduledStart && !extraRound && employee.work_start) {
       scheduledStart = String(employee.work_start)
     }
 
@@ -138,24 +140,22 @@ export async function POST(request: NextRequest) {
     if (existing) {
       // The status is written here too — a row pre-created by the daily
       // approval sheet would otherwise keep its placeholder status forever.
-      await db.prepare('UPDATE attendance SET check_in=?, check_in_method=?, check_in_lat=?, check_in_lng=?, shift_id=COALESCE(shift_id, ?), status=?, approved=MAX(COALESCE(approved,0), ?), offsite_request_id=COALESCE(?, offsite_request_id) WHERE id=?')
-        .bind(checkInTime, method, latitude ?? null, longitude ?? null, effectiveShiftId, status, autoApprove, offsite?.id ?? null, existing.id).run()
+      await db.prepare('UPDATE attendance SET check_in=?, check_in_method=?, check_in_lat=?, check_in_lng=?, shift_id=COALESCE(shift_id, ?), status=?, approved=MAX(COALESCE(approved,0), ?), offsite_request_id=COALESCE(?, offsite_request_id), pay_wage=? WHERE id=?')
+        .bind(checkInTime, method, latitude ?? null, longitude ?? null, effectiveShiftId, status, autoApprove, offsite?.id ?? null, extraRound ? 0 : 1, existing.id).run()
     } else {
       const id = generateId()
       await db.prepare(`
-        INSERT INTO attendance (id, employee_id, date, shift_id, check_in, check_in_method, sales_point_id, status, check_in_lat, check_in_lng, approved, offsite_request_id, session_no)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(id, employee_id, today, effectiveShiftId, checkInTime, method, sales_point_id || null, status, latitude ?? null, longitude ?? null, autoApprove, offsite?.id ?? null, sessionNo).run()
+        INSERT INTO attendance (id, employee_id, date, shift_id, check_in, check_in_method, sales_point_id, status, check_in_lat, check_in_lng, approved, offsite_request_id, session_no, pay_wage)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(id, employee_id, today, effectiveShiftId, checkInTime, method, sales_point_id || null, status, latitude ?? null, longitude ?? null, autoApprove, offsite?.id ?? null, sessionNo, extraRound ? 0 : 1).run()
     }
-
-    const extraRound = sessionNo > 1
 
     return Response.json({
       success: true,
       session_no: sessionNo,
       extra_round: extraRound,
       message: extraRound
-        ? `เช็คอินกะพิเศษ (รอบที่ ${sessionNo}) สำเร็จ: ${employee.name}`
+        ? `เช็คอินกะพิเศษ (OT) สำเร็จ: ${employee.name}`
         : offsite
         ? `เช็คอินสำเร็จ (นอกสถานที่: ${offsite.location_name}): ${employee.name}`
         : `เช็คอินสำเร็จ: ${employee.name}`,

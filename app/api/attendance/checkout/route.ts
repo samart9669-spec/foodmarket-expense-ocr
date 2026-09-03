@@ -1,5 +1,5 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
-import { getTodayString, calculateHoursWorked, getBangkokDateTimeString, getCurrentTimeString, minutesFromScheduled, isOTEligible, scheduledWorkHours, overtimeHours } from '@/lib/utils'
+import { getTodayString, calculateHoursWorked, getBangkokDateTimeString, getCurrentTimeString, minutesFromScheduled, isOTEligible, scheduledWorkHours, overtimeHours, roundOTToHalfHour } from '@/lib/utils'
 import { getGeoTarget, validateGeoPosition } from '@/lib/geo'
 import { isOfficeEmployee } from '@/lib/auth-server'
 import { ensureAttendanceApprovedColumn, ensureAttendanceStatusColumns, getApprovedOffsite } from '@/lib/db-tables'
@@ -89,12 +89,16 @@ export async function POST(request: NextRequest) {
     const checkOutTime = getBangkokDateTimeString()
     const nowHHMM = getCurrentTimeString().slice(0, 5)
 
+    // กะพิเศษ is overtime work with no shift behind it: every hour counts as
+    // OT and there is no shift end to leave early from.
+    const extraRound = (Number(existing.session_no) || 1) > 1
+
     // ออกก่อนเวลา: checkout before the scheduled end time (shift end or the
     // employee's fixed work_end)
     let endTimeStr: string | null = null
     let startTimeStr: string | null = null
-    let shiftId: string | null = existing.shift_id
-    if (!shiftId) {
+    let shiftId: string | null = extraRound ? null : existing.shift_id
+    if (!shiftId && !extraRound) {
       // No shift on the record — fall back to the branch's default shift
       try {
         const branch = await db.prepare('SELECT default_shift_id FROM sales_points WHERE id = ?')
@@ -108,24 +112,27 @@ export async function POST(request: NextRequest) {
       if (shift?.end_time) endTimeStr = shift.end_time
       if (shift?.start_time) startTimeStr = shift.start_time
     }
-    if (!endTimeStr && (employee as any).work_end) endTimeStr = String((employee as any).work_end)
-    if (!startTimeStr && (employee as any).work_start) startTimeStr = String((employee as any).work_start)
+    if (!extraRound && !endTimeStr && (employee as any).work_end) endTimeStr = String((employee as any).work_end)
+    if (!extraRound && !startTimeStr && (employee as any).work_start) startTimeStr = String((employee as any).work_start)
 
     // The daily wage buys the whole shift, so the break is not deducted. OT is
     // only the time worked past the shift's end — the same rule the daily
     // approval sheet uses, so both agree.
     const totalHours = calculateHoursWorked(existing.check_in || '', checkOutTime)
     const shiftHours = scheduledWorkHours(startTimeStr, endTimeStr, 8)
-    const regularHours = Math.min(totalHours, shiftHours)
+    // A กะพิเศษ has no regular hours — all of it is OT
+    const regularHours = extraRound ? 0 : Math.min(totalHours, shiftHours)
     // OT: daily-rate staff only, paid in whole 30-minute blocks
     const otHours = isOTEligible((employee as any).salary_type)
-      ? overtimeHours(endTimeStr, nowHHMM, totalHours)
+      ? (extraRound
+        ? roundOTToHalfHour(totalHours)
+        : overtimeHours(endTimeStr, nowHHMM, totalHours))
       : 0
 
     // Negative means before the scheduled end — normalised so a checkout just
     // after midnight on a day shift is not mistaken for leaving early.
     let earlyOut = 0
-    if (endTimeStr && minutesFromScheduled(endTimeStr, nowHHMM) < 0) {
+    if (!extraRound && endTimeStr && minutesFromScheduled(endTimeStr, nowHHMM) < 0) {
       earlyOut = 1
     }
 
@@ -152,8 +159,8 @@ export async function POST(request: NextRequest) {
       early_out: earlyOut === 1,
       session_no: Number(existing.session_no) || 1,
       offsite: offsite ? { location_name: offsite.location_name } : null,
-      message: (Number(existing.session_no) || 1) > 1
-        ? `เช็คเอาต์กะพิเศษ (รอบที่ ${existing.session_no}) สำเร็จ: ${employee.name}`
+      message: extraRound
+        ? `เช็คเอาต์กะพิเศษ (OT ${Math.round(otHours * 10) / 10} ชม.): ${employee.name}`
         : earlyOut
         ? `เช็คเอาต์สำเร็จ (ออกก่อนเวลา ${endTimeStr}): ${employee.name}`
         : offsite

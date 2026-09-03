@@ -4,7 +4,7 @@ export const runtime = 'edge'
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { getAuthHeaders, isOTEligible, lateMinutes, scheduledWorkHours, overtimeHours } from '@/lib/utils'
+import { getAuthHeaders, isOTEligible, lateMinutes, scheduledWorkHours, overtimeHours, roundOTToHalfHour } from '@/lib/utils'
 
 interface ShiftInfo {
   id: string; name: string; start_time: string; end_time: string
@@ -15,9 +15,9 @@ interface AttendanceRow {
   id: string | null
   employee_id: string
   name: string
-  /** Round of the day: 1 = กะหลัก, 2+ = กะพิเศษ */
+  /** Round of the day: 1 = กะหลัก, 2+ = กะพิเศษ (นับเป็น OT ล้วน) */
   session_no: number
-  /** Whether this round pays a shift wage of its own */
+  /** Whether this round pays a shift wage. Always false for a กะพิเศษ. */
   pay_wage: boolean
   daily_rate: number
   ot_rate: number
@@ -74,24 +74,31 @@ function calcMinutesDiff(fromHHMM: string, toHHMM: string): number {
 }
 
 function computeRow(row: AttendanceRow, settings: Record<string, string>): AttendanceRow {
+  // กะพิเศษ is overtime work, not a shift: it follows no schedule, so every
+  // hour of it is OT, it can never be late, and it pays no shift wage.
+  const isExtra = row.session_no > 1
+
   // The daily wage buys the whole shift, not a number of worked hours, so the
   // break is part of the shift and is never deducted from the time worked.
   const workMins = calcMinutesDiff(row.check_in, row.check_out)
   const actual_hours = workMins > 0 ? workMins / 60 : 0
 
   // Late only when the check-in is past the shift start plus the department's
-  // grace — arriving early is never late.
+  // grace — arriving early is never late. A กะพิเศษ has no start to be late for.
   const grace = parseInt(settings[`late_grace_${row.department}`] ?? '15') || 0
-  const lateMins = row.shift_start && row.check_in
+  const lateMins = !isExtra && row.shift_start && row.check_in
     ? lateMinutes(row.shift_start, row.check_in, grace)
     : 0
   const regularHours = scheduledWorkHours(
     row.shift_start, row.shift_end, row.regular_hours_shift || 8,
   )
-  // OT counts only the time worked past the shift's END time — coming in early
-  // is not overtime. Daily-rate staff only, in whole 30-minute blocks.
+  // Normal round: OT is only the time past the shift's END time — coming in
+  // early is not overtime. กะพิเศษ: the whole round is OT.
+  // Daily-rate staff only, in whole 30-minute blocks, nothing under 30 minutes.
   const ot_hours = isOTEligible(row.salary_type)
-    ? overtimeHours(row.shift_end, row.check_out, actual_hours)
+    ? (isExtra
+      ? roundOTToHalfHour(actual_hours)
+      : overtimeHours(row.shift_end, row.check_out, actual_hours))
     : 0
 
   const dayTypeObj = DAY_TYPES.find(d => d.value === row.day_type)
@@ -113,8 +120,8 @@ function computeRow(row: AttendanceRow, settings: Record<string, string>): Atten
     ? row.ot_rate
     : (row.daily_rate / (regularHours || 8)) * otMultiplier
 
-  // An extra round can be set to pay OT only, so the daily rate is not paid twice
-  const base = row.pay_wage ? row.daily_rate * multiplier : 0
+  // A กะพิเศษ is paid as OT only — the daily rate is never paid twice
+  const base = isExtra || !row.pay_wage ? 0 : row.daily_rate * multiplier
   // Wages are paid in whole baht — a half-hour OT block must not leave satang
   const otPay = Math.round(ot_hours * otPayPerHour)
   const net_pay = Math.max(0, Math.round(
@@ -166,7 +173,7 @@ export default function DailyApprovalPage() {
             employee_id: emp.id,
             name: emp.name,
             session_no: Number(att?.session_no) || 1,
-            pay_wage: att ? att.pay_wage !== 0 : true,
+            pay_wage: (Number(att?.session_no) || 1) === 1 && (att ? att.pay_wage !== 0 : true),
             daily_rate: emp.daily_rate || 0,
             ot_rate: emp.ot_rate || 0,
             salary_type: emp.salary_type || 'daily',
@@ -235,7 +242,7 @@ export default function DailyApprovalPage() {
         ...src,
         id: null,
         session_no: nextNo,
-        pay_wage: true,
+        pay_wage: false,
         check_in: '',
         check_out: '',
         notes: '',
@@ -435,7 +442,7 @@ export default function DailyApprovalPage() {
                           <span>{row.name}</span>
                           {row.session_no > 1 && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 border border-violet-200 font-semibold">
-                              กะพิเศษ รอบ {row.session_no}
+                              กะพิเศษ {row.session_no > 2 ? `รอบ ${row.session_no}` : ''} · OT ล้วน
                             </span>
                           )}
                         </div>
@@ -444,9 +451,9 @@ export default function DailyApprovalPage() {
                             type="button"
                             onClick={() => addExtraRound(realIdx)}
                             className="text-[11px] text-blue-600 hover:underline"
-                            title="เพิ่มกะพิเศษให้พนักงานคนนี้ในวันเดียวกัน"
+                            title="เพิ่มกะพิเศษ (ทำ OT นอกกะ) ให้พนักงานคนนี้ในวันเดียวกัน"
                           >
-                            + กะพิเศษ
+                            + กะพิเศษ (OT)
                           </button>
                           {row.session_no > 1 && !row.id && (
                             <button
@@ -460,15 +467,21 @@ export default function DailyApprovalPage() {
                         </div>
                       </td>
                       <td className="px-3 py-2">
-                        <select
-                          value={row.shift_id || ''}
-                          onChange={e => handleShiftChange(realIdx, e.target.value)}
-                          className="w-full border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
-                        >
-                          {shifts.map(s => (
-                            <option key={s.id} value={s.id}>{s.name} ({s.start_time}-{s.end_time})</option>
-                          ))}
-                        </select>
+                        {row.session_no > 1 ? (
+                          <span className="text-xs text-violet-600 bg-violet-50 border border-violet-200 rounded-lg px-2 py-1 inline-block">
+                            ไม่ยึดกะ — คิดเป็น OT ทั้งหมด
+                          </span>
+                        ) : (
+                          <select
+                            value={row.shift_id || ''}
+                            onChange={e => handleShiftChange(realIdx, e.target.value)}
+                            className="w-full border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                          >
+                            {shifts.map(s => (
+                              <option key={s.id} value={s.id}>{s.name} ({s.start_time}-{s.end_time})</option>
+                            ))}
+                          </select>
+                        )}
                       </td>
                       <td className="px-3 py-2">
                         <input type="time" value={row.check_in}
@@ -497,16 +510,6 @@ export default function DailyApprovalPage() {
                           : <span className="text-gray-300 text-xs">0</span>}
                       </td>
                       <td className="px-3 py-2">
-                        {row.session_no > 1 && (
-                          <select
-                            value={row.pay_wage ? '1' : '0'}
-                            onChange={e => update(realIdx, { pay_wage: e.target.value === '1' })}
-                            className="w-full border border-violet-200 bg-violet-50 rounded-lg px-2 py-1 text-xs mb-1 focus:outline-none focus:ring-1 focus:ring-violet-400"
-                          >
-                            <option value="1">จ่ายค่าแรงเต็มกะ</option>
-                            <option value="0">ไม่จ่ายค่าแรง (คิด OT อย่างเดียว)</option>
-                          </select>
-                        )}
                         <select
                           value={row.day_type}
                           onChange={e => update(realIdx, { day_type: e.target.value })}

@@ -25,6 +25,7 @@ interface Row {
   status: string | null
   early_out: number | null
   ot_hours: number | null
+  session_no: number | null
   job_title: string | null
   employee_type: string | null
   salary_type: string | null
@@ -62,6 +63,7 @@ async function loadChanges(db: any, from: string, to: string) {
   const [attRes, settingsRes] = await Promise.all([
     db.prepare(`
       SELECT a.id, a.employee_id, a.date, a.check_in, a.check_out, a.status, a.early_out, a.ot_hours,
+             COALESCE(a.session_no, 1) AS session_no,
              e.name AS employee_name, e.job_title, e.employee_type, e.salary_type, e.work_start, e.work_end,
              s.start_time AS shift_start, s.end_time AS shift_end
       FROM attendance a
@@ -93,9 +95,11 @@ async function loadChanges(db: any, from: string, to: string) {
       continue
     }
 
-    const scheduledStart = row.shift_start || row.work_start || null
-    const scheduledEnd = row.shift_end || row.work_end || null
-    if (!scheduledStart) unknownSchedule++
+    // กะพิเศษ follows no shift — it is OT from start to finish
+    const isExtra = (Number(row.session_no) || 1) > 1
+    const scheduledStart = isExtra ? null : (row.shift_start || row.work_start || null)
+    const scheduledEnd = isExtra ? null : (row.shift_end || row.work_end || null)
+    if (!isExtra && !scheduledStart) unknownSchedule++
 
     const grace = graceMinutesFor(row, settings)
     const result = attendanceStatusFor({
@@ -112,9 +116,13 @@ async function loadChanges(db: any, from: string, to: string) {
     // when the schedule or the checkout is unknown.
     const currentOt = Number(row.ot_hours) || 0
     const worked = hoursBetween(row.check_in, row.check_out)
-    const otFromTimes = worked !== null && scheduledEnd && row.check_out
-      ? overtimeHours(scheduledEnd, row.check_out, worked)
-      : null
+    const otFromTimes = worked === null || !row.check_out
+      ? null
+      : isExtra
+        ? roundOTToHalfHour(worked)
+        : scheduledEnd
+          ? overtimeHours(scheduledEnd, row.check_out, worked)
+          : null
     const newOt = isOTEligible(row.salary_type)
       ? (otFromTimes ?? roundOTToHalfHour(currentOt))
       : 0
