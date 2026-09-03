@@ -150,8 +150,30 @@ export async function runMigrations(db: any): Promise<string[]> {
   // Diligence allowance actually paid on a payroll record
   await run('ALTER TABLE payroll ADD COLUMN diligence_allowance REAL DEFAULT 0', 'payroll.diligence_allowance')
 
-  // Branch incentive rate (% of that branch's sales in the period)
+  // Branch incentive rate (% of that branch's sales in the period). Kept as the
+  // fallback for branches that have no tiered scale configured.
   await run('ALTER TABLE sales_points ADD COLUMN incentive_rate REAL DEFAULT 0', 'sales_points.incentive_rate')
+
+  // Tiered incentive: each branch pays a fixed amount once its sales pass a
+  // threshold, e.g. Fashion B >16,200 = 45, >18,000 = 50. shift_id lets one
+  // branch carry a different scale for a particular shift.
+  await run(`
+    CREATE TABLE IF NOT EXISTS incentive_tiers (
+      id TEXT PRIMARY KEY,
+      sales_point_id TEXT NOT NULL,
+      shift_id TEXT,
+      min_sales REAL NOT NULL,
+      amount REAL NOT NULL,
+      created_at TEXT DEFAULT (datetime('now', 'localtime'))
+    )
+  `, 'incentive_tiers table')
+  await run('CREATE INDEX IF NOT EXISTS idx_incentive_tiers_point ON incentive_tiers(sales_point_id)',
+            'incentive_tiers index')
+  // Which sales figure the thresholds are compared against:
+  // 'daily' = that day's branch sales, paid for each day worked (default)
+  // 'period' = the whole pay period's sales, paid once
+  await run("ALTER TABLE sales_points ADD COLUMN incentive_basis TEXT DEFAULT 'daily'",
+            'sales_points.incentive_basis')
 
   // Payroll breakdown for the new components
   await run('ALTER TABLE payroll ADD COLUMN incentive_total REAL DEFAULT 0', 'payroll.incentive_total')

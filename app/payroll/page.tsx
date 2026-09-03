@@ -99,7 +99,10 @@ interface CalcResult {
     department: string; department_label: string; eligible: boolean
     grace_minutes: number; amount: number; deduction_amount: number; mode: string
   }
-  incentive_breakdown?: Array<{ name: string; sales: number; rate: number; amount: number }>
+  incentive_breakdown?: Array<{
+    name: string; sales: number; rate: number; amount: number
+    days?: number; per_day?: number; basis?: string
+  }>
 }
 
 export default function PayrollPage() {
@@ -490,7 +493,11 @@ export default function PayrollPage() {
                   <p>
                     <span className="font-medium text-gray-800">Incentive:</span>{' '}
                     {calcResult.incentive_breakdown!.map(b =>
-                      `${b.name} ยอดขาย ${formatCurrency(b.sales)} × ${b.rate}% = ${formatCurrency(b.amount)}`
+                      b.basis === 'daily'
+                        ? `${b.name} ${b.days} วัน (เฉลี่ยวันละ ${formatCurrency(b.per_day ?? 0)}) = ${formatCurrency(b.amount)}`
+                        : b.basis === 'period'
+                          ? `${b.name} ยอดขายรอบนี้ ${formatCurrency(b.sales)} = ${formatCurrency(b.amount)}`
+                          : `${b.name} ยอดขาย ${formatCurrency(b.sales)} × ${b.rate}% = ${formatCurrency(b.amount)}`
                     ).join(' · ')}
                   </p>
                 )}

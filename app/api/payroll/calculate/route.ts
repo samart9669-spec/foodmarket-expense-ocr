@@ -1,6 +1,7 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { calculatePayroll } from '@/lib/utils'
 import { diligenceTermsFor, diligenceForPeriod, DEPARTMENT_LABELS } from '@/lib/diligence'
+import { incentiveForSales, tiersFor, normalizeBasis } from '@/lib/incentive'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -41,6 +42,7 @@ export async function POST(request: NextRequest) {
     const attendanceRecords = attendanceResult.results as Array<{
       id: string; date: string; check_in: string | null; check_out: string | null;
       regular_hours: number; ot_hours: number; status: string; sales_point_id: string | null
+      shift_id: string | null; session_no: number | null; pay_wage: number | null
     }>
 
     const salesResult = await db.prepare(
@@ -69,26 +71,104 @@ export async function POST(request: NextRequest) {
       diligenceForPeriod(terms, late_days)
 
     // ── Incentive from the sales of the branches worked in the period ──
-    // Each branch pays its own rate on the sales it took that period.
+    // A branch with a tiered scale pays a fixed amount per step (e.g. Fashion B
+    // >16,200 = 45, >18,000 = 50), compared against that day's sales by default
+    // or against the whole period's sales when the branch is set that way.
+    // Branches with no scale fall back to the old percentage rate.
     const branchIds = new Set<string>()
     for (const a of attendanceRecords) if (a.sales_point_id) branchIds.add(a.sales_point_id)
     if (branchIds.size === 0 && employee.sales_point_id) branchIds.add(employee.sales_point_id)
 
+    const tiersRes = await db.prepare('SELECT * FROM incentive_tiers').all().catch(() => ({ results: [] }))
+    const allTiers = (tiersRes.results || []) as any[]
+
     let incentive_total = 0
-    const incentive_breakdown: Array<{ sales_point_id: string; name: string; sales: number; rate: number; amount: number }> = []
+    const incentive_breakdown: Array<{
+      sales_point_id: string; name: string; sales: number; rate: number; amount: number
+      days?: number; per_day?: number; basis?: string
+    }> = []
+
     for (const spId of Array.from(branchIds)) {
-      const branch = await db.prepare('SELECT id, name, incentive_rate FROM sales_points WHERE id = ?')
-        .bind(spId).first() as any
-      const rate = parseFloat(branch?.incentive_rate ?? 0) || 0
-      if (!branch || rate <= 0) continue
-      const branchSales = await db.prepare(
-        'SELECT COALESCE(SUM(amount), 0) AS total FROM sales WHERE sales_point_id = ? AND date BETWEEN ? AND ?'
-      ).bind(spId, period_start, period_end).first() as any
-      const sales = branchSales?.total || 0
-      const amount = Math.round(sales * (rate / 100) * 100) / 100
-      if (amount === 0) continue
-      incentive_total += amount
-      incentive_breakdown.push({ sales_point_id: spId, name: branch.name, sales, rate, amount })
+      const branch = await db.prepare(
+        'SELECT id, name, incentive_rate, incentive_basis FROM sales_points WHERE id = ?'
+      ).bind(spId).first() as any
+      if (!branch) continue
+
+      const branchTiers = allTiers.filter(t => t.sales_point_id === spId)
+
+      if (branchTiers.length === 0) {
+        // Old behaviour: a flat percentage of the branch's sales for the period
+        const rate = parseFloat(branch.incentive_rate ?? 0) || 0
+        if (rate <= 0) continue
+        const branchSales = await db.prepare(
+          'SELECT COALESCE(SUM(amount), 0) AS total FROM sales WHERE sales_point_id = ? AND date BETWEEN ? AND ?'
+        ).bind(spId, period_start, period_end).first() as any
+        const sales = branchSales?.total || 0
+        const amount = Math.round(sales * (rate / 100) * 100) / 100
+        if (amount === 0) continue
+        incentive_total += amount
+        incentive_breakdown.push({ sales_point_id: spId, name: branch.name, sales, rate, amount })
+        continue
+      }
+
+      const basis = normalizeBasis(branch.incentive_basis)
+
+      if (basis === 'period') {
+        // One payment for the period, from the period's total sales
+        const branchSales = await db.prepare(
+          'SELECT COALESCE(SUM(amount), 0) AS total FROM sales WHERE sales_point_id = ? AND date BETWEEN ? AND ?'
+        ).bind(spId, period_start, period_end).first() as any
+        const sales = branchSales?.total || 0
+        // A period scale is not shift-specific
+        const amount = incentiveForSales(tiersFor(branchTiers, spId, null), sales)
+        if (amount === 0) continue
+        incentive_total += amount
+        incentive_breakdown.push({
+          sales_point_id: spId, name: branch.name, sales, rate: 0, amount,
+          basis: 'period', days: 1, per_day: amount,
+        })
+        continue
+      }
+
+      // Daily basis: one payment per day worked at this branch, from that day's
+      // sales. A กะพิเศษ (OT round) does not earn a second incentive.
+      const dailySalesRes = await db.prepare(
+        `SELECT date, COALESCE(SUM(amount), 0) AS total FROM sales
+         WHERE sales_point_id = ? AND date BETWEEN ? AND ? GROUP BY date`
+      ).bind(spId, period_start, period_end).all()
+      const salesByDate = new Map<string, number>()
+      for (const r of (dailySalesRes.results || []) as any[]) salesByDate.set(r.date, r.total || 0)
+
+      const seenDates = new Set<string>()
+      let branchTotal = 0
+      let branchSalesSum = 0
+      let days = 0
+      for (const a of attendanceRecords) {
+        if (a.sales_point_id !== spId) continue
+        if ((Number((a as any).session_no) || 1) > 1) continue
+        if (a.status !== 'present' && a.status !== 'late' && a.status !== 'half') continue
+        if (seenDates.has(a.date)) continue
+        seenDates.add(a.date)
+
+        const sales = salesByDate.get(a.date) || 0
+        const amount = incentiveForSales(tiersFor(branchTiers, spId, (a as any).shift_id || null), sales)
+        if (amount === 0) continue
+        branchTotal += amount
+        branchSalesSum += sales
+        days++
+      }
+
+      if (branchTotal === 0) continue
+      incentive_total += branchTotal
+      incentive_breakdown.push({
+        sales_point_id: spId, name: branch.name,
+        sales: Math.round(branchSalesSum * 100) / 100,
+        rate: 0,
+        amount: Math.round(branchTotal * 100) / 100,
+        days,
+        per_day: Math.round((branchTotal / days) * 100) / 100,
+        basis: 'daily',
+      })
     }
     incentive_total = Math.round(incentive_total * 100) / 100
 

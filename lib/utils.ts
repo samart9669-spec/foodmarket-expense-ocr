@@ -183,7 +183,7 @@ export interface PayrollCalculation {
 }
 
 export function calculatePayroll(
-  attendanceRecords: Array<{ regular_hours: number; ot_hours: number; status: string; pay_wage?: number }>,
+  attendanceRecords: Array<{ regular_hours: number; ot_hours: number; status: string; pay_wage?: number | null }>,
   salesRecords: Array<{ amount: number }>,
   employee: { daily_rate: number; ot_rate: number; commission_rate: number; salary_type?: string },
   bonus: number = 0,

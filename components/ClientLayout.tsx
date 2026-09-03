@@ -16,6 +16,7 @@ const PAGE_LABELS: Record<string, string> = {
   '/payroll': 'เงินเดือน',
   '/shifts': 'ตั้งค่ากะงาน',
   '/payroll-settings': 'ตั้งค่าเงินเดือน',
+  '/incentive': 'เกณฑ์ Incentive',
   '/admin/leave': 'อนุมัติใบลา',
   '/admin/offsite': 'อนุมัติงานนอกสถานที่',
   '/admin/manage': 'จัดการระบบ',
