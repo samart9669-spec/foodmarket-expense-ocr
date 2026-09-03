@@ -23,6 +23,7 @@ interface AttendanceRow {
   ot_rate: number
   salary_type: string
   department: string
+  sales_point_name: string | null
   shift_id: string | null
   shift_name: string | null
   shift_start: string | null
@@ -156,18 +157,19 @@ export default function DailyApprovalPage() {
       const s: Record<string, string> = data.settings || {}
       setSettings(s)
       setShifts(data.shifts || [])
-      const defaultShift = (data.shifts || [])[0] as ShiftInfo | undefined
-
       // One row per round worked. A normal day is a single round; a กะพิเศษ
       // adds another, so an employee can appear more than once.
       const mapped: AttendanceRow[] = []
       for (const emp of (data.employees || [])) {
         const records: any[] = emp.attendances?.length ? emp.attendances : [null]
         for (const att of records) {
-          // The round's own shift wins; otherwise the employee's branch default
-          const shiftStart = att?.att_shift_start || emp.shift_start || defaultShift?.start_time || '08:00'
-          const shiftEnd = att?.att_shift_end || emp.shift_end || defaultShift?.end_time || '17:00'
-          const breakMins = att?.att_break_minutes ?? emp.break_minutes ?? defaultShift?.break_minutes ?? 60
+          // The API already resolved the round's shift: the one saved on the
+          // round, else the default shift of the branch chosen at the scan,
+          // else the employee's own branch. Null when nothing is configured —
+          // never a guess, which used to show one shift for everybody.
+          const shiftStart = att?.att_shift_start || emp.shift_start || null
+          const shiftEnd = att?.att_shift_end || emp.shift_end || null
+          const breakMins = att?.att_break_minutes ?? emp.break_minutes ?? 60
           const raw: AttendanceRow = {
             id: att?.id || null,
             employee_id: emp.id,
@@ -178,11 +180,12 @@ export default function DailyApprovalPage() {
             ot_rate: emp.ot_rate || 0,
             salary_type: emp.salary_type || 'daily',
             department: emp.department || 'kitchen',
-            shift_id: att?.att_shift_id || emp.shift_id || defaultShift?.id || null,
-            shift_name: att?.att_shift_name || emp.shift_name || defaultShift?.name || '',
+            sales_point_name: att?.att_sales_point_name || emp.sales_point_name || null,
+            shift_id: att?.att_shift_id || emp.shift_id || null,
+            shift_name: att?.att_shift_name || emp.shift_name || '',
             shift_start: shiftStart,
             shift_end: shiftEnd,
-            regular_hours_shift: att?.att_regular_hours || emp.regular_hours || defaultShift?.regular_hours || 8,
+            regular_hours_shift: att?.att_regular_hours || emp.regular_hours || 8,
             break_minutes: breakMins,
             check_in: att ? storedToHHMM(att.check_in) : '',
             check_out: att ? storedToHHMM(att.check_out) : '',
@@ -220,7 +223,13 @@ export default function DailyApprovalPage() {
 
   const handleShiftChange = (idx: number, shiftId: string) => {
     const sh = shifts.find(s => s.id === shiftId)
-    if (!sh) return
+    if (!sh) {
+      // "-- ยังไม่ระบุกะ --": no schedule to judge lateness or OT against
+      update(idx, {
+        shift_id: null, shift_name: '', shift_start: null, shift_end: null,
+      })
+      return
+    }
     update(idx, {
       shift_id: sh.id,
       shift_name: sh.name,
@@ -414,6 +423,7 @@ export default function DailyApprovalPage() {
                 <tr>
                   <th className="px-3 py-3 text-left w-20">รหัส</th>
                   <th className="px-3 py-3 text-left">ชื่อพนักงาน</th>
+                  <th className="px-3 py-3 text-left w-32">สาขา</th>
                   <th className="px-3 py-3 text-left w-36">กะงาน</th>
                   <th className="px-3 py-3 text-center w-24">เข้าจริง</th>
                   <th className="px-3 py-3 text-center w-24">ออกจริง</th>
@@ -466,6 +476,9 @@ export default function DailyApprovalPage() {
                           )}
                         </div>
                       </td>
+                      <td className="px-3 py-2 text-xs text-gray-600">
+                        {row.sales_point_name || <span className="text-gray-300">-</span>}
+                      </td>
                       <td className="px-3 py-2">
                         {row.session_no > 1 ? (
                           <span className="text-xs text-violet-600 bg-violet-50 border border-violet-200 rounded-lg px-2 py-1 inline-block">
@@ -475,8 +488,11 @@ export default function DailyApprovalPage() {
                           <select
                             value={row.shift_id || ''}
                             onChange={e => handleShiftChange(realIdx, e.target.value)}
-                            className="w-full border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                            className={`w-full border rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 ${
+                              row.shift_id ? 'border-gray-200' : 'border-amber-300 bg-amber-50'
+                            }`}
                           >
+                            <option value="">-- ยังไม่ระบุกะ --</option>
                             {shifts.map(s => (
                               <option key={s.id} value={s.id}>{s.name} ({s.start_time}-{s.end_time})</option>
                             ))}
@@ -556,7 +572,7 @@ export default function DailyApprovalPage() {
                   )
                 })}
                 {filtered.length === 0 && (
-                  <tr><td colSpan={15} className="text-center py-12 text-gray-400">ไม่พบข้อมูล</td></tr>
+                  <tr><td colSpan={16} className="text-center py-12 text-gray-400">ไม่พบข้อมูล</td></tr>
                 )}
               </tbody>
             </table>

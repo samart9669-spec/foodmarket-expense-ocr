@@ -36,6 +36,7 @@ export async function GET(request: NextRequest) {
       // round carries its own shift, resolved below.
       db.prepare(`
         SELECT e.id, e.name, e.daily_rate, e.ot_rate, e.employee_type, e.salary_type, e.job_title,
+               sp.id as sales_point_id, sp.name as sales_point_name,
                s.id as shift_id, s.name as shift_name,
                s.start_time as shift_start, s.end_time as shift_end,
                s.regular_hours, s.break_minutes
@@ -47,14 +48,27 @@ export async function GET(request: NextRequest) {
         ORDER BY e.name ASC
       `).all(),
 
-      // Every round worked that day, กะพิเศษ included, with its own shift
+      // Every round worked that day, กะพิเศษ included. The shift is the one
+      // saved on the round; otherwise the default shift of the BRANCH chosen at
+      // the scan, falling back to the employee's own branch.
       db.prepare(`
         SELECT a.*,
-               s.id as att_shift_id, s.name as att_shift_name,
-               s.start_time as att_shift_start, s.end_time as att_shift_end,
-               s.regular_hours as att_regular_hours, s.break_minutes as att_break_minutes
+               asp.name as att_sales_point_name,
+               COALESCE(s.id, bs.id, ebs.id) as att_shift_id,
+               COALESCE(s.name, bs.name, ebs.name) as att_shift_name,
+               COALESCE(s.start_time, bs.start_time, ebs.start_time) as att_shift_start,
+               COALESCE(s.end_time, bs.end_time, ebs.end_time) as att_shift_end,
+               COALESCE(s.regular_hours, bs.regular_hours, ebs.regular_hours) as att_regular_hours,
+               COALESCE(s.break_minutes, bs.break_minutes, ebs.break_minutes) as att_break_minutes
         FROM attendance a
+        JOIN employees e ON e.id = a.employee_id
         LEFT JOIN shifts s ON s.id = a.shift_id
+        -- Branch worked in that round, and its default shift
+        LEFT JOIN sales_points asp ON asp.id = a.sales_point_id
+        LEFT JOIN shifts bs ON bs.id = asp.default_shift_id
+        -- The employee's own branch, as the last resort
+        LEFT JOIN sales_points esp ON esp.id = e.sales_point_id
+        LEFT JOIN shifts ebs ON ebs.id = esp.default_shift_id
         WHERE a.date = ?
         ORDER BY COALESCE(a.session_no, 1) ASC, a.check_in ASC
       `).bind(date).all(),
