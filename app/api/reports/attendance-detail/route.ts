@@ -58,15 +58,32 @@ export async function GET(request: NextRequest) {
 
     // A day can hold more than one round (กะพิเศษ). The first round drives the
     // day's own times; extra rounds are listed alongside and add to the OT.
+    // Hours worked are summed across every round of the day.
+    const hoursBetween = (from: string | null, to: string | null): number | null => {
+      if (!from || !to) return null
+      const parse = (v: string) => {
+        const m = v.match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{2})/)
+        return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) : null
+      }
+      const a = parse(from), b = parse(to)
+      if (a === null || b === null) return null
+      return Math.max(0, (b - a) / 3600000)
+    }
+
     const attMap = new Map<string, any>()
     const extraByDate = new Map<string, any[]>()
     for (const a of (attendanceRes.results || []) as any[]) {
       const first = attMap.get(a.date)
       if (!first) {
-        attMap.set(a.date, { ...a, ot_hours_total: a.ot_hours || 0 })
+        attMap.set(a.date, {
+          ...a,
+          ot_hours_total: a.ot_hours || 0,
+          hours_total: hoursBetween(a.check_in, a.check_out) ?? 0,
+        })
         continue
       }
       first.ot_hours_total = (first.ot_hours_total || 0) + (a.ot_hours || 0)
+      first.hours_total = (first.hours_total || 0) + (hoursBetween(a.check_in, a.check_out) ?? 0)
       // Any late round makes the day late
       if (a.status === 'late') first.status = 'late'
       ;(extraByDate.get(a.date) || extraByDate.set(a.date, []).get(a.date)!).push(a)
@@ -120,6 +137,7 @@ export async function GET(request: NextRequest) {
         check_in: att?.check_in ?? null,
         check_out: att?.check_out ?? null,
         ot_hours: att ? (att.ot_hours_total ?? att.ot_hours ?? null) : null,
+        hours: att ? Math.round((att.hours_total ?? 0) * 100) / 100 : null,
         extra_rounds: (extraByDate.get(dateStr) || []).map((r: any) => ({
           session_no: r.session_no,
           check_in: r.check_in,
@@ -144,6 +162,8 @@ export async function GET(request: NextRequest) {
       leave: days.filter(d => d.kind === 'leave').length,
       leave_hours: Math.round(days.reduce((sum, d) => sum + (d.leave_unit === 'hour' ? (d.leave_hours || 0) : 0), 0) * 100) / 100,
       absent: days.filter(d => d.kind === 'absent' || d.kind === 'missing').length,
+      hours_total: Math.round(days.reduce((sum, d) => sum + (d.hours || 0), 0) * 100) / 100,
+      ot_total: Math.round(days.reduce((sum, d) => sum + (d.ot_hours || 0), 0) * 100) / 100,
     }
 
     return Response.json({

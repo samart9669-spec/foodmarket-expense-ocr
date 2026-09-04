@@ -4,6 +4,16 @@ export const runtime = 'edge'
 
 import { Suspense, useState, useEffect, useMemo } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { getAuthHeaders } from '@/lib/utils'
+
+interface EmployeeOption { id: string; name: string }
+
+interface ExtraRound {
+  session_no: number
+  check_in: string | null
+  check_out: string | null
+  ot_hours: number | null
+}
 
 interface DayRow {
   date: string
@@ -11,7 +21,9 @@ interface DayRow {
   kind: string
   check_in: string | null
   check_out: string | null
+  hours: number | null
   ot_hours: number | null
+  extra_rounds?: ExtraRound[]
   early_out: boolean
   offsite_location: string | null
   sales_point_name: string | null
@@ -33,7 +45,10 @@ interface DetailData {
     work_end: string | null
     work_days: number[]
   }
-  summary: { present: number; late: number; leave: number; leave_hours: number; absent: number }
+  summary: {
+    present: number; late: number; leave: number; leave_hours: number; absent: number
+    hours_total: number; ot_total: number
+  }
   days: DayRow[]
 }
 
@@ -62,27 +77,67 @@ function fmtTime(t: string | null): string {
 function DetailContent() {
   const router = useRouter()
   const params = useSearchParams()
-  const employeeId = params.get('employee_id') || ''
+  const [employeeId, setEmployeeId] = useState(params.get('employee_id') || '')
+  const [employees, setEmployees] = useState<EmployeeOption[]>([])
   const [month, setMonth] = useState(params.get('month') || new Date().toISOString().slice(0, 7))
   const [data, setData] = useState<DetailData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  // The picker makes the page usable on its own, not only from the stats sheet
   useEffect(() => {
-    if (!employeeId) { setError('ไม่ระบุพนักงาน'); setLoading(false); return }
+    fetch('/api/employees', { headers: getAuthHeaders() })
+      .then(r => r.json())
+      .then((d: any) => {
+        const list: EmployeeOption[] = (d.employees || []).map((e: any) => ({ id: e.id, name: e.name }))
+        setEmployees(list)
+        setEmployeeId(prev => prev || list[0]?.id || '')
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!employeeId) { setLoading(false); return }
     setLoading(true)
     setError('')
+    // Keep the URL shareable as the selection changes
+    router.replace(`/reports/attendance/detail?employee_id=${encodeURIComponent(employeeId)}&month=${month}`)
     fetch(`/api/reports/attendance-detail?employee_id=${encodeURIComponent(employeeId)}&month=${month}`)
       .then(r => r.json())
       .then((d: any) => { if (d.error) setError(d.error); else setData(d) })
       .catch(() => setError('เชื่อมต่อไม่สำเร็จ'))
       .finally(() => setLoading(false))
+  // router is stable in the app router; re-running on it would loop
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [employeeId, month])
 
   const monthLabel = useMemo(() => {
     const [y, m] = month.split('-').map(Number)
     return new Date(y, m - 1, 1).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })
   }, [month])
+
+  const exportCSV = () => {
+    if (!data) return
+    const headers = ['วันที่', 'วัน', 'เข้างาน', 'เลิกงาน', 'ชั่วโมง', 'OT', 'สถานะ', 'สาขา/หมายเหตุ']
+    const rows = data.days.map(d => [
+      d.date,
+      THAI_DAYS[d.day_of_week],
+      fmtTime(d.check_in),
+      fmtTime(d.check_out),
+      d.hours ?? '',
+      d.ot_hours ?? '',
+      (KIND_BADGE[d.kind] ?? KIND_BADGE.none).label,
+      d.offsite_location || d.sales_point_name || '',
+    ])
+    const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `attendance-${data.employee.name}-${month}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   if (loading) {
     return <div className="flex items-center justify-center h-64"><div className="animate-spin w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full" /></div>
@@ -108,15 +163,31 @@ function DetailContent() {
             </p>
           </div>
         </div>
-        <input type="month" className="text-sm font-medium text-gray-800 border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
-          value={month} onChange={e => e.target.value && setMonth(e.target.value)} />
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            className="text-sm font-medium text-gray-800 border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 min-w-[200px]"
+            value={employeeId}
+            onChange={e => setEmployeeId(e.target.value)}
+          >
+            {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+          </select>
+          <input type="month" className="text-sm font-medium text-gray-800 border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+            value={month} onChange={e => e.target.value && setMonth(e.target.value)} />
+          <button
+            onClick={exportCSV}
+            disabled={!data}
+            className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white hover:bg-gray-50 disabled:opacity-40"
+          >
+            Export CSV
+          </button>
+        </div>
       </div>
 
       {error && <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">{error}</div>}
 
       {data && (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             {([
               { key: 'present', label: 'มาทำงาน', color: 'text-green-600' },
               { key: 'late', label: 'มาสาย', color: 'text-orange-500' },
@@ -134,6 +205,20 @@ function DetailContent() {
                 </div>
               </div>
             ))}
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+              <p className="text-sm text-gray-500">ชั่วโมงรวม</p>
+              <div className="flex items-baseline gap-1.5 mt-1">
+                <span className="text-3xl font-bold text-gray-800">{data.summary.hours_total}</span>
+                <span className="text-sm text-gray-400">ชม.</span>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+              <p className="text-sm text-gray-500">OT รวม</p>
+              <div className="flex items-baseline gap-1.5 mt-1">
+                <span className="text-3xl font-bold text-indigo-600">{data.summary.ot_total}</span>
+                <span className="text-sm text-gray-400">ชม.</span>
+              </div>
+            </div>
           </div>
 
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
@@ -145,6 +230,8 @@ function DetailContent() {
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500">วัน</th>
                     <th className="px-3 py-3 text-center text-xs font-medium text-gray-500">เข้างาน</th>
                     <th className="px-3 py-3 text-center text-xs font-medium text-gray-500">เลิกงาน</th>
+                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500">ชม.</th>
+                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500">OT</th>
                     <th className="px-3 py-3 text-center text-xs font-medium text-gray-500">สถานะ</th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500">หมายเหตุ</th>
                   </tr>
@@ -165,6 +252,9 @@ function DetailContent() {
                     } else if (d.sales_point_name) {
                       noteParts.push(d.sales_point_name)
                     }
+                    for (const r of (d.extra_rounds || [])) {
+                      noteParts.push(`กะพิเศษ ${fmtTime(r.check_in)}-${fmtTime(r.check_out)} (OT ${r.ot_hours ?? 0} ชม.)`)
+                    }
                     const note = noteParts.join(' · ')
                     return (
                       <tr key={d.date} className={isWeekendish ? 'bg-gray-50/60' : 'hover:bg-gray-50/60 transition-colors'}>
@@ -172,6 +262,14 @@ function DetailContent() {
                         <td className={`px-3 py-2.5 text-xs ${isWeekendish ? 'text-gray-400' : 'text-gray-700'}`}>{THAI_DAYS[d.day_of_week]}</td>
                         <td className="px-3 py-2.5 text-center font-mono text-xs text-gray-700">{fmtTime(d.check_in)}</td>
                         <td className="px-3 py-2.5 text-center font-mono text-xs text-gray-700">{fmtTime(d.check_out)}</td>
+                        <td className="px-3 py-2.5 text-center font-mono text-xs text-gray-700">
+                          {d.hours ? d.hours.toFixed(2) : <span className="text-gray-300">-</span>}
+                        </td>
+                        <td className="px-3 py-2.5 text-center font-mono text-xs">
+                          {d.ot_hours
+                            ? <span className="text-indigo-600 font-medium">{d.ot_hours.toFixed(1)}</span>
+                            : <span className="text-gray-300">-</span>}
+                        </td>
                         <td className="px-3 py-2.5 text-center">
                           {d.kind === 'future' || d.kind === 'none' ? (
                             <span className="text-gray-300 text-xs">-</span>
