@@ -7,8 +7,8 @@ import { getTodayString, formatCurrency, formatThaiTime, getEmployeeTypeLabel } 
 
 interface Sale {
   id: string
-  employee_id: string
-  employee_name: string
+  employee_id: string | null
+  employee_name: string | null
   employee_type: string
   sales_point_id: string
   sales_point_name: string
@@ -70,7 +70,7 @@ export default function SalesPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!form.employee_id || !form.sales_point_id || !form.amount) {
+    if (!form.sales_point_id || !form.amount) {
       alert('กรุณากรอกข้อมูลให้ครบ')
       return
     }
@@ -80,7 +80,7 @@ export default function SalesPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          employee_id: form.employee_id,
+          employee_id: form.employee_id || null,
           sales_point_id: form.sales_point_id,
           amount: parseFloat(form.amount),
           date,
@@ -108,12 +108,14 @@ export default function SalesPage() {
 
   const totalSales = sales.reduce((sum, s) => sum + s.amount, 0)
 
+  // ยอดขายที่ไม่ระบุพนักงานจะถูกรวมไว้เป็น "ยอดขายของสาขา"
   const byEmployee = sales.reduce((acc, s) => {
-    if (!acc[s.employee_id]) {
-      acc[s.employee_id] = { name: s.employee_name, total: 0, count: 0 }
+    const key = s.employee_id || '__branch__'
+    if (!acc[key]) {
+      acc[key] = { name: s.employee_name || 'ยอดขายของสาขา', total: 0, count: 0 }
     }
-    acc[s.employee_id].total += s.amount
-    acc[s.employee_id].count += 1
+    acc[key].total += s.amount
+    acc[key].count += 1
     return acc
   }, {} as Record<string, { name: string; total: number; count: number }>)
 
@@ -128,7 +130,7 @@ export default function SalesPage() {
   const exportCSV = () => {
     const headers = ['ชื่อพนักงาน', 'จุดขาย', 'วันที่', 'ยอดขาย', 'หมายเหตุ']
     const rows = sales.map((s) => [
-      s.employee_name,
+      s.employee_name || 'ยอดขายของสาขา',
       s.sales_point_name,
       s.date,
       s.amount,
@@ -205,18 +207,21 @@ export default function SalesPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="label">พนักงาน *</label>
+                <label className="label">พนักงาน</label>
                 <select
                   className="input-field"
                   value={form.employee_id}
                   onChange={(e) => setForm({ ...form, employee_id: e.target.value })}
-                  required
                 >
-                  <option value="">-- เลือกพนักงาน --</option>
+                  <option value="">-- ยอดขายของสาขา (ไม่ระบุพนักงาน) --</option>
                   {employees.map((emp) => (
                     <option key={emp.id} value={emp.id}>{emp.name}</option>
                   ))}
                 </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Incentive คิดจากยอดขายของสาขาและจ่ายให้คนที่มาทำงานวันนั้น จึงไม่ต้องระบุพนักงาน
+                  ระบุเฉพาะกรณีที่ต้องการคิดค่าคอมมิชชั่นรายบุคคล
+                </p>
               </div>
               <div>
                 <label className="label">จุดขาย *</label>
@@ -338,7 +343,9 @@ export default function SalesPage() {
               <tbody className="divide-y divide-gray-100">
                 {sales.map((sale) => (
                   <tr key={sale.id} className="hover:bg-gray-50">
-                    <td className="table-cell font-medium">{sale.employee_name}</td>
+                    <td className="table-cell font-medium">
+                      {sale.employee_name || <span className="text-gray-400">ยอดขายของสาขา</span>}
+                    </td>
                     <td className="table-cell text-gray-600">{sale.sales_point_name}</td>
                     <td className="table-cell font-semibold text-green-700">{formatCurrency(sale.amount)}</td>
                     <td className="table-cell text-gray-500">{sale.notes || '-'}</td>

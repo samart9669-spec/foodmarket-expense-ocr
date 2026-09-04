@@ -1,7 +1,7 @@
 // Bump APP_VERSION whenever a change is deployed so the running build is
 // identifiable from the UI. BUILD_TIME is stamped automatically at build time
 // (see next.config.mjs) — it reflects when the deployment was compiled.
-export const APP_VERSION = '1.6.0'
+export const APP_VERSION = '1.6.1'
 
 export const BUILD_TIME = process.env.NEXT_PUBLIC_BUILD_TIME || ''
 

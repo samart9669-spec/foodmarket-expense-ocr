@@ -52,24 +52,28 @@ export async function POST(request: NextRequest) {
     const db = env.DB
 
     const body = await request.json() as {
-      employee_id: string
+      employee_id?: string | null
       sales_point_id: string
       amount: number
       date?: string
       notes?: string
     }
 
-    const { employee_id, sales_point_id, amount, date = getTodayString(), notes } = body
+    const { sales_point_id, amount, date = getTodayString(), notes } = body
+    // ยอดขายเป็นของสาขาต่อวัน ระบุพนักงานเฉพาะเมื่อต้องการคิดค่าคอมรายบุคคล
+    const employee_id = body.employee_id || null
 
-    if (!employee_id || !sales_point_id || amount === undefined) {
-      return Response.json({ error: 'employee_id, sales_point_id, and amount are required' }, { status: 400 })
+    if (!sales_point_id || amount === undefined) {
+      return Response.json({ error: 'sales_point_id and amount are required' }, { status: 400 })
     }
     if (amount < 0) {
       return Response.json({ error: 'Amount must be non-negative' }, { status: 400 })
     }
 
-    const employee = await db.prepare('SELECT id FROM employees WHERE id = ?').bind(employee_id).first()
-    if (!employee) return Response.json({ error: 'Employee not found' }, { status: 404 })
+    if (employee_id) {
+      const employee = await db.prepare('SELECT id FROM employees WHERE id = ?').bind(employee_id).first()
+      if (!employee) return Response.json({ error: 'Employee not found' }, { status: 404 })
+    }
 
     const salesPoint = await db.prepare('SELECT id FROM sales_points WHERE id = ?').bind(sales_point_id).first()
     if (!salesPoint) return Response.json({ error: 'Sales point not found' }, { status: 404 })

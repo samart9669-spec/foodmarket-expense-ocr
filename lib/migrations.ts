@@ -154,6 +154,39 @@ export async function runMigrations(db: any): Promise<string[]> {
   // fallback for branches that have no tiered scale configured.
   await run('ALTER TABLE sales_points ADD COLUMN incentive_rate REAL DEFAULT 0', 'sales_points.incentive_rate')
 
+  // ยอดขายบันทึกเป็นของสาขาต่อวัน ไม่ต้องระบุพนักงาน — incentive จ่ายให้คนที่มา
+  // ทำงานวันนั้นอยู่แล้ว SQLite ไม่มี DROP NOT NULL จึงต้องสร้างตารางใหม่ ทำครั้ง
+  // เดียวเมื่อคอลัมน์ยังเป็น NOT NULL อยู่
+  try {
+    const col = await db.prepare(
+      `SELECT "notnull" AS nn FROM pragma_table_info('sales') WHERE name = 'employee_id'`
+    ).first() as any
+    if (col && Number(col.nn) === 1) {
+      await db.batch([
+        db.prepare(`
+          CREATE TABLE sales_rebuild (
+            id TEXT PRIMARY KEY,
+            employee_id TEXT,
+            sales_point_id TEXT NOT NULL,
+            date TEXT NOT NULL,
+            amount REAL NOT NULL,
+            notes TEXT,
+            created_at TEXT DEFAULT (datetime('now', 'localtime'))
+          )
+        `),
+        db.prepare(`INSERT INTO sales_rebuild (id, employee_id, sales_point_id, date, amount, notes, created_at)
+                    SELECT id, employee_id, sales_point_id, date, amount, notes, created_at FROM sales`),
+        db.prepare('DROP TABLE sales'),
+        db.prepare('ALTER TABLE sales_rebuild RENAME TO sales'),
+      ])
+      results.push('✓ sales.employee_id optional')
+    } else {
+      results.push('~ sales.employee_id optional (already)')
+    }
+  } catch (e: any) {
+    results.push(`✗ sales.employee_id optional: ${e?.message}`)
+  }
+
   // Tiered incentive: each branch pays a fixed amount once its sales pass a
   // threshold, e.g. Fashion B >16,200 = 45, >18,000 = 50. shift_id lets one
   // branch carry a different scale for a particular shift.
