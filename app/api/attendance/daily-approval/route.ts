@@ -209,3 +209,34 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: e?.message || 'Failed' }, { status: 500 })
   }
 }
+
+/**
+ * ลบรอบกะพิเศษที่บันทึกผิด เช่น สแกนซ้ำตอนเช็คเอาต์แล้วเปิดรอบคร่อมช่วงที่ไม่ได้
+ * ทำงาน รอบหลัก (session 1) ลบไม่ได้ ให้แก้เวลาแทน
+ */
+export async function DELETE(request: NextRequest) {
+  const { env } = getRequestContext()
+  const db = env.DB
+
+  if (!(await authorizeApproval(request, db))) {
+    return Response.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  try {
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+    if (!id) return Response.json({ error: 'ต้องระบุรายการที่จะลบ' }, { status: 400 })
+
+    const row = await db.prepare('SELECT id, COALESCE(session_no, 1) AS session_no FROM attendance WHERE id = ?')
+      .bind(id).first() as any
+    if (!row) return Response.json({ error: 'ไม่พบรายการ' }, { status: 404 })
+    if ((Number(row.session_no) || 1) <= 1) {
+      return Response.json({ error: 'ลบได้เฉพาะรอบกะพิเศษ รอบหลักให้แก้เวลาแทน' }, { status: 400 })
+    }
+
+    await db.prepare('DELETE FROM attendance WHERE id = ?').bind(id).run()
+    return Response.json({ success: true })
+  } catch (e: any) {
+    return Response.json({ error: e?.message || 'Failed' }, { status: 500 })
+  }
+}

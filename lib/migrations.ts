@@ -111,6 +111,12 @@ export async function runMigrations(db: any): Promise<string[]> {
     ('uniform_deposit', '0', 'ค่ามัดจำเครื่องแบบ', 'deduction', '฿')
   `, 'payroll_settings seed')
 
+  // กะพิเศษ: เว้นระยะขั้นต่ำหลังเช็คเอาต์รอบก่อน ก่อนจะเริ่มรอบใหม่ได้
+  // กันการสแกนซ้ำตอนเช็คเอาต์ ที่ทำให้เปิดรอบใหม่คร่อมช่วงที่ไม่ได้ทำงาน
+  await run(`INSERT OR IGNORE INTO payroll_settings (key, value, label, category, unit) VALUES
+    ('extra_round_min_gap', '30', 'เว้นระยะก่อนเริ่มกะพิเศษได้ (กันสแกนซ้ำ)', 'general', 'นาที')
+  `, 'extra round gap setting')
+
   // เบี้ยขยัน: หน้าร้านและครัวกลางใช้เกณฑ์คนละชุด ส่วนออฟฟิศไม่มีเบี้ยขยัน
   // (grace is still kept for office so lateness is still recorded).
   await run(`INSERT OR IGNORE INTO payroll_settings (key, value, label, category, unit) VALUES

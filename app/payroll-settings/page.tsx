@@ -13,6 +13,18 @@ interface PayrollSetting {
 }
 
 const categoryMeta: Record<string, { label: string; note: string; color: string; bg: string; border: string; icon: React.ReactNode }> = {
+  general: {
+    label: 'การสแกนเข้า-ออกงาน',
+    note: 'กติกาการบันทึกเวลา เช่น ระยะเวลาที่ต้องเว้นก่อนเริ่มกะพิเศษได้ (กันการสแกนซ้ำ)',
+    color: 'text-slate-700',
+    bg: 'bg-slate-50',
+    border: 'border-slate-200',
+    icon: (
+      <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    ),
+  },
   allowance: {
     label: 'เบี้ยเลี้ยง',
     note: 'จำนวนเงินที่จะนำไปใช้เป็นค่าเริ่มต้นเมื่อคำนวณเงินเดือน',
@@ -75,7 +87,7 @@ const categoryMeta: Record<string, { label: string; note: string; color: string;
   },
 }
 
-const categoryOrder = ['allowance', 'daytype', 'ot', 'deduction', 'diligence']
+const categoryOrder = ['general', 'allowance', 'daytype', 'ot', 'deduction', 'diligence']
 
 export default function PayrollSettingsPage() {
   const [settings, setSettings] = useState<PayrollSetting[]>([])

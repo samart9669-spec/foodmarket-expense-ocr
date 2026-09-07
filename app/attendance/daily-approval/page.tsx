@@ -268,13 +268,21 @@ export default function DailyApprovalPage() {
     })
   }
 
-  const removeRound = (idx: number) => {
+  const removeRound = async (idx: number) => {
     const row = rows[idx]
-    if (row.id) {
-      alert('รอบนี้บันทึกไว้แล้ว ให้ลบเวลาเข้า-ออกแทน')
+    if (!row.id) {
+      setRows(prev => prev.filter((_, i) => i !== idx))
       return
     }
-    setRows(prev => prev.filter((_, i) => i !== idx))
+    // A round already saved (e.g. opened by a stray scan) is deleted server-side
+    if (!confirm(`ลบรอบกะพิเศษของ ${row.name} (${row.check_in || '-'}-${row.check_out || '-'}) ?`)) return
+    const res = await fetch(`/api/attendance/daily-approval?id=${encodeURIComponent(row.id)}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    })
+    const data = await res.json().catch(() => ({})) as any
+    if (!res.ok) { alert(data.error || 'ลบไม่สำเร็จ'); return }
+    await load(date)
   }
 
   const handleSave = async (action: 'draft' | 'approve') => {
@@ -465,7 +473,7 @@ export default function DailyApprovalPage() {
                           >
                             + กะพิเศษ (OT)
                           </button>
-                          {row.session_no > 1 && !row.id && (
+                          {row.session_no > 1 && (
                             <button
                               type="button"
                               onClick={() => removeRound(realIdx)}

@@ -10,6 +10,17 @@ import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
 
+/** Minutes between two stored timestamps ("YYYY-MM-DD HH:MM:SS"), or null */
+function minutesBetween(from: string, to: string): number | null {
+  const parse = (v: string) => {
+    const m = v.match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{2})/)
+    return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) : null
+  }
+  const a = parse(from), b = parse(to)
+  if (a === null || b === null) return null
+  return Math.round((b - a) / 60000)
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { env } = getRequestContext()
@@ -81,13 +92,27 @@ export async function POST(request: NextRequest) {
     const closed = rounds.filter(r => r.check_out)
     const lastClosed = closed.length > 0 ? closed[closed.length - 1] : null
 
-    // A new round may not overlap the previous one — a second scan right after
-    // checking out is a mistake, not an extra shift.
+    // Settings are needed both for the duplicate-scan guard and the grace below
+    const settingsRes = await db.prepare('SELECT key, value FROM payroll_settings').all()
+    const settings: Record<string, string> = {}
+    for (const row of (settingsRes.results || []) as any[]) settings[row.key] = row.value
+
+    // A new round has to start well after the previous one ended. Scanning
+    // again a moment after checking out is a mis-scan, not an extra shift —
+    // without this the stray scan opened a round that then swallowed the gap
+    // until the real OT check-in, and billed that gap as OT.
     if (!existing && lastClosed) {
       const lastOut = String(lastClosed.check_out || '')
-      if (lastOut && checkInTime <= lastOut) {
+      const gapMinutes = Math.max(0, parseInt(settings.extra_round_min_gap ?? '30') || 0)
+      const minutesSince = minutesBetween(lastOut, checkInTime)
+      if (lastOut && minutesSince !== null && minutesSince < gapMinutes) {
         return Response.json({
-          error: `กะพิเศษต้องเริ่มหลังเวลาออกงานรอบก่อน (${lastOut.slice(11, 16)} น.)`,
+          error: minutesSince <= 0
+            ? `กะพิเศษต้องเริ่มหลังเวลาออกงานรอบก่อน (${lastOut.slice(11, 16)} น.)`
+            : `เพิ่งเช็คเอาต์ไปเมื่อ ${lastOut.slice(11, 16)} น. (${minutesSince} นาทีที่แล้ว) `
+              + `ถ้าจะเริ่มกะพิเศษ ให้สแกนอีกครั้งหลังจากเช็คเอาต์แล้วอย่างน้อย ${gapMinutes} นาที`,
+          last_check_out: lastOut,
+          minutes_since: minutesSince,
         }, { status: 409 })
       }
     }
@@ -113,9 +138,6 @@ export async function POST(request: NextRequest) {
     }
 
     // Grace before counting as late is configured per department
-    const settingsRes = await db.prepare('SELECT key, value FROM payroll_settings').all()
-    const settings: Record<string, string> = {}
-    for (const row of (settingsRes.results || []) as any[]) settings[row.key] = row.value
     const grace = graceMinutesFor(employee, settings)
 
     // Scheduled start: the shift, or the employee's fixed personal schedule
