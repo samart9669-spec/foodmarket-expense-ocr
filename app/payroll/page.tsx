@@ -99,6 +99,12 @@ interface CalcResult {
     department: string; department_label: string; eligible: boolean
     grace_minutes: number; amount: number; deduction_amount: number; mode: string
   }
+  pay_terms?: {
+    salary_type: string; pay_cycle: string; pay_cycle_label: string
+    monthly_salary: number; cycle_amount: number
+    no_ot: boolean; no_diligence: boolean; incentive_eligible: boolean
+    partner_name: string | null; partner_share: number; own_share: number
+  }
   incentive_breakdown?: Array<{
     name: string; sales: number; rate: number; amount: number
     days?: number; per_day?: number; basis?: string
@@ -489,6 +495,27 @@ export default function PayrollPage() {
                     </>
                   )}
                 </p>
+                {calcResult.pay_terms && calcResult.pay_terms.salary_type === 'monthly' && (
+                  <p>
+                    <span className="font-medium text-gray-800">เงินเดือน:</span>{' '}
+                    {formatCurrency(calcResult.pay_terms.monthly_salary)}/เดือน ·{' '}
+                    {calcResult.pay_terms.pay_cycle_label} = {formatCurrency(calcResult.pay_terms.cycle_amount)}/งวด
+                    {calcResult.pay_terms.partner_name && calcResult.pay_terms.partner_share > 0 && (
+                      <> · {calcResult.pay_terms.partner_name} จ่าย {formatCurrency(calcResult.pay_terms.partner_share)} —
+                        {' '}<strong>บริษัทจ่าย {formatCurrency(calcResult.pay_terms.own_share)}</strong></>
+                    )}
+                  </p>
+                )}
+                {calcResult.pay_terms && (calcResult.pay_terms.no_ot || calcResult.pay_terms.no_diligence || !calcResult.pay_terms.incentive_eligible) && (
+                  <p className="text-gray-500">
+                    ข้อยกเว้น:{' '}
+                    {[
+                      calcResult.pay_terms.no_ot && 'ไม่คิด OT',
+                      calcResult.pay_terms.no_diligence && 'ไม่มีเบี้ยขยัน',
+                      !calcResult.pay_terms.incentive_eligible && 'ไม่ได้ incentive',
+                    ].filter(Boolean).join(' · ')}
+                  </p>
+                )}
                 {(calcResult.incentive_breakdown ?? []).length > 0 && (
                   <p>
                     <span className="font-medium text-gray-800">Incentive:</span>{' '}

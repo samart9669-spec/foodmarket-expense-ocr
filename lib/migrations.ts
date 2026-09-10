@@ -193,6 +193,15 @@ export async function runMigrations(db: any): Promise<string[]> {
     results.push(`✗ sales.employee_id optional: ${e?.message}`)
   }
 
+  // เงื่อนไขการจ่ายรายบุคคล — บางคนตกลงเป็นยอดคงที่ต่อรอบ และมีข้อยกเว้นเฉพาะคน
+  await run("ALTER TABLE employees ADD COLUMN pay_cycle TEXT DEFAULT 'monthly'", 'employees.pay_cycle')
+  await run('ALTER TABLE employees ADD COLUMN no_ot INTEGER DEFAULT 0', 'employees.no_ot')
+  await run('ALTER TABLE employees ADD COLUMN no_diligence INTEGER DEFAULT 0', 'employees.no_diligence')
+  await run('ALTER TABLE employees ADD COLUMN incentive_eligible INTEGER DEFAULT 1', 'employees.incentive_eligible')
+  // บริษัทคู่สัญญาที่ร่วมจ่ายค่าแรงบางส่วน (เช่น รอซโซ่)
+  await run('ALTER TABLE employees ADD COLUMN partner_name TEXT', 'employees.partner_name')
+  await run('ALTER TABLE employees ADD COLUMN partner_share REAL DEFAULT 0', 'employees.partner_share')
+
   // Tiered incentive: each branch pays a fixed amount once its sales pass a
   // threshold, e.g. Fashion B >16,200 = 45, >18,000 = 50. shift_id lets one
   // branch carry a different scale for a particular shift.

@@ -11,6 +11,24 @@ export async function ensureAttendanceApprovedColumn(db: any) {
 
 // early_out: checked out before scheduled end time (ออกก่อนเวลา)
 // offsite_request_id: links to the approved offsite-work request used that day
+/** เงื่อนไขการจ่ายรายบุคคล — เผื่อฐานข้อมูลยังไม่ได้ migrate */
+export async function ensurePayTermColumns(db: any) {
+  for (const column of [
+    "pay_cycle TEXT DEFAULT 'monthly'",
+    'no_ot INTEGER DEFAULT 0',
+    'no_diligence INTEGER DEFAULT 0',
+    'incentive_eligible INTEGER DEFAULT 1',
+    'partner_name TEXT',
+    'partner_share REAL DEFAULT 0',
+  ]) {
+    try {
+      await db.prepare(`ALTER TABLE employees ADD COLUMN ${column}`).run()
+    } catch {
+      // duplicate column — already present
+    }
+  }
+}
+
 export async function ensureAttendanceStatusColumns(db: any) {
   for (const column of [
     'early_out INTEGER DEFAULT 0',

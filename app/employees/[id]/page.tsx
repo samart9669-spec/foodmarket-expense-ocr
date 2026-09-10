@@ -4,6 +4,7 @@ export const runtime = 'edge'
 
 import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
+import { PAY_CYCLE_LABELS, CYCLES_PER_MONTH, type PayCycle } from '@/lib/pay-terms'
 import { getAdminRole, getAuthHeaders } from '@/lib/utils'
 import { extractFaceDescriptor } from '@/lib/face'
 
@@ -36,6 +37,8 @@ export default function EmployeeDetailPage() {
   const [form, setForm] = useState({
     name: '', job_title: 'kitchen', employee_type: 'kitchen', salary_type: 'daily',
     sales_point_id: '', daily_rate: 350, monthly_salary: 0, ot_rate: 50, commission_rate: 0, phone: '',
+    pay_cycle: 'monthly', no_ot: false, no_diligence: false, incentive_eligible: true,
+    partner_name: '', partner_share: 0,
     work_start: '08:00', work_end: '18:00', work_days: [1, 2, 3, 4, 5] as number[],
   })
 
@@ -62,6 +65,12 @@ export default function EmployeeDetailPage() {
           sales_point_id: emp.sales_point_id || '',
           daily_rate: emp.daily_rate,
           monthly_salary: emp.monthly_salary || 0,
+          pay_cycle: emp.pay_cycle || 'monthly',
+          no_ot: Number(emp.no_ot) === 1,
+          no_diligence: Number(emp.no_diligence) === 1,
+          incentive_eligible: Number(emp.incentive_eligible ?? 1) !== 0,
+          partner_name: emp.partner_name || '',
+          partner_share: emp.partner_share || 0,
           ot_rate: emp.ot_rate,
           commission_rate: emp.commission_rate || 0,
           phone: emp.phone || '',
@@ -115,6 +124,12 @@ export default function EmployeeDetailPage() {
           job_title: actualJobTitle,
           sales_point_id: positionPreset === 'sales' ? form.sales_point_id : null,
           monthly_salary: form.salary_type === 'monthly' ? form.monthly_salary : 0,
+          pay_cycle: form.pay_cycle,
+          no_ot: form.no_ot ? 1 : 0,
+          no_diligence: form.no_diligence ? 1 : 0,
+          incentive_eligible: form.incentive_eligible ? 1 : 0,
+          partner_name: form.partner_name,
+          partner_share: form.partner_share,
           daily_rate: form.salary_type === 'monthly' ? 0 : form.daily_rate,
           work_start: isOfficePosition ? form.work_start : undefined,
           work_end: isOfficePosition ? form.work_end : undefined,
@@ -162,6 +177,11 @@ export default function EmployeeDetailPage() {
       setEmployee(prev => prev ? { ...prev, face_descriptor: null } : null)
     } catch { setError('เกิดข้อผิดพลาด') }
   }
+
+  // ยอดที่จ่ายจริงต่อ 1 งวด ตามรอบที่เลือก
+  const cycleAmount = Math.round(
+    (form.monthly_salary / (CYCLES_PER_MONTH[form.pay_cycle as PayCycle] || 1)) * 100
+  ) / 100
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full" /></div>
   if (forbidden) return (
@@ -272,6 +292,23 @@ export default function EmployeeDetailPage() {
 
         <div className="card space-y-4">
           <h2 className="font-semibold text-gray-900 pb-2 border-b">โครงสร้างรายได้</h2>
+          <div className="flex flex-wrap gap-4 text-sm">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={form.no_ot}
+                onChange={e => setForm({ ...form, no_ot: e.target.checked })} />
+              ไม่คิด OT
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={form.no_diligence}
+                onChange={e => setForm({ ...form, no_diligence: e.target.checked })} />
+              ไม่มีเบี้ยขยัน
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={form.incentive_eligible}
+                onChange={e => setForm({ ...form, incentive_eligible: e.target.checked })} />
+              ได้รับ incentive จากยอดขาย
+            </label>
+          </div>
           {form.salary_type === 'monthly' ? (
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -284,8 +321,38 @@ export default function EmployeeDetailPage() {
                 <input type="number" className="input-field" value={form.ot_rate}
                   onChange={e => setForm({ ...form, ot_rate: Number(e.target.value) })} min={0} step="any" />
               </div>
-              <div className="col-span-2 bg-purple-50 border border-purple-200 rounded-lg p-3 text-sm text-purple-700">
-                รายได้ = เงินเดือน {form.monthly_salary.toLocaleString()} ฿/เดือน + (OT × ชั่วโมง OT)
+              <div>
+                <label className="label">รอบการจ่าย</label>
+                <select className="input-field" value={form.pay_cycle}
+                  onChange={e => setForm({ ...form, pay_cycle: e.target.value })}>
+                  {Object.entries(PAY_CYCLE_LABELS).filter(([k]) => k !== 'daily').map(([k, v]) => (
+                    <option key={k} value={k}>{v}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">คู่สัญญาร่วมจ่าย (ถ้ามี)</label>
+                <input type="text" className="input-field" value={form.partner_name} placeholder="เช่น รอซโซ่"
+                  onChange={e => setForm({ ...form, partner_name: e.target.value })} />
+              </div>
+              {form.partner_name && (
+                <div>
+                  <label className="label">คู่สัญญาจ่าย/งวด (฿)</label>
+                  <input type="number" className="input-field" value={form.partner_share}
+                    onChange={e => setForm({ ...form, partner_share: Number(e.target.value) })} min={0} step="any" />
+                </div>
+              )}
+              <div className="col-span-2 bg-purple-50 border border-purple-200 rounded-lg p-3 text-sm text-purple-700 space-y-1">
+                <p>
+                  ยอดต่องวด = {cycleAmount.toLocaleString()} ฿
+                  ({form.monthly_salary.toLocaleString()} ฿/เดือน ÷ {CYCLES_PER_MONTH[form.pay_cycle as PayCycle] || 1} งวด)
+                </p>
+                {form.partner_name && form.partner_share > 0 && (
+                  <p>
+                    {form.partner_name} จ่าย {form.partner_share.toLocaleString()} ฿ ·
+                    <strong> บริษัทจ่าย {Math.max(0, cycleAmount - form.partner_share).toLocaleString()} ฿/งวด</strong>
+                  </p>
+                )}
               </div>
             </div>
           ) : (

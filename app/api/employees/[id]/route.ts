@@ -1,6 +1,7 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { getRoleFromRequest, isOfficeEmployee } from '@/lib/auth-server'
-import { ensureEmployeeScheduleColumns } from '@/lib/db-tables'
+import { ensureEmployeeScheduleColumns, ensurePayTermColumns } from '@/lib/db-tables'
+import { normalizePayCycle } from '@/lib/pay-terms'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -63,6 +64,12 @@ export async function PUT(
       work_start?: string
       work_end?: string
       work_days?: string
+      pay_cycle?: string
+      no_ot?: number | boolean
+      no_diligence?: number | boolean
+      incentive_eligible?: number | boolean
+      partner_name?: string
+      partner_share?: number
     }
 
     const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(params.id).first<any>()
@@ -83,7 +90,15 @@ export async function PUT(
 
     const employee_type = job_title !== undefined ? (job_title === 'sales' ? 'sales' : 'kitchen') : undefined
 
+    // เงื่อนไขการจ่ายรายบุคคล — ส่งมาเมื่อไรก็อัปเดต ไม่ส่งก็คงค่าเดิม
+    const flag = (v: any) => (v === undefined || v === null ? null : (v ? 1 : 0))
+    const payCycle = body.pay_cycle ? normalizePayCycle(body.pay_cycle) : null
+    const partnerShare = body.partner_share === undefined ? null : (Number(body.partner_share) || 0)
+    // partner_name ว่างหมายถึงลบชื่อคู่สัญญาออก จึงใช้ค่าว่างแทน null
+    const partnerName = body.partner_name === undefined ? null : (body.partner_name || '')
+
     await ensureEmployeeScheduleColumns(db)
+    await ensurePayTermColumns(db)
     await db.prepare(`
       UPDATE employees SET
         name = COALESCE(?, name),
@@ -101,13 +116,22 @@ export async function PUT(
         is_active = COALESCE(?, is_active),
         work_start = COALESCE(?, work_start),
         work_end = COALESCE(?, work_end),
-        work_days = COALESCE(?, work_days)
+        work_days = COALESCE(?, work_days),
+        pay_cycle = COALESCE(?, pay_cycle),
+        no_ot = COALESCE(?, no_ot),
+        no_diligence = COALESCE(?, no_diligence),
+        incentive_eligible = COALESCE(?, incentive_eligible),
+        partner_name = COALESCE(?, partner_name),
+        partner_share = COALESCE(?, partner_share)
       WHERE id = ?
     `).bind(
       name ?? null, employee_type ?? null, job_title ?? null, salary_type ?? null, sales_point_id ?? null,
       daily_rate ?? null, monthly_salary ?? null, ot_rate ?? null, commission_rate ?? null,
       face_descriptor ?? null, qr_code ?? null, phone ?? null,
-      is_active ?? null, work_start ?? null, work_end ?? null, work_days ?? null, params.id
+      is_active ?? null, work_start ?? null, work_end ?? null, work_days ?? null,
+      payCycle, flag(body.no_ot), flag(body.no_diligence), flag(body.incentive_eligible),
+      partnerName, partnerShare,
+      params.id
     ).run()
 
     const updated = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(params.id).first()

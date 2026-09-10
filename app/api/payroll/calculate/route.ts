@@ -2,6 +2,8 @@ import { getRequestContext } from '@cloudflare/next-on-pages'
 import { calculatePayroll } from '@/lib/utils'
 import { diligenceTermsFor, diligenceForPeriod, DEPARTMENT_LABELS } from '@/lib/diligence'
 import { incentiveForSales, tiersFor, normalizeBasis } from '@/lib/incentive'
+import { payTermsOf, amountPerCycle, ownSharePerCycle, PAY_CYCLE_LABELS } from '@/lib/pay-terms'
+import { ensurePayTermColumns } from '@/lib/db-tables'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -24,6 +26,8 @@ export async function POST(request: NextRequest) {
     if (!employee_id || !period_start || !period_end) {
       return Response.json({ error: 'employee_id, period_start, and period_end are required' }, { status: 400 })
     }
+
+    await ensurePayTermColumns(db)
 
     const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(employee_id).first() as {
       id: string; name: string; employee_type: string; salary_type: string | null; job_title: string | null;
@@ -51,12 +55,18 @@ export async function POST(request: NextRequest) {
 
     const salesRecords = salesResult.results as Array<{ amount: number }>
 
+    // เงื่อนไขการจ่ายรายบุคคล: ยอดคงที่ต่องวด, ไม่คิด OT, ไม่มีเบี้ยขยัน,
+    // ได้ incentive หรือไม่ และส่วนที่บริษัทคู่สัญญาร่วมจ่าย
+    const terms = payTermsOf(employee)
+    const cycle_amount = amountPerCycle(terms)
+
     const calculation = calculatePayroll(
       attendanceRecords,
       salesRecords,
       { ...employee, salary_type: employee.salary_type || 'daily' },
       bonus,
       deductions,
+      { fixedCycleAmount: cycle_amount, noOT: terms.no_ot },
     )
 
     // ── Settings ──────────────────────────────────────────────────
@@ -65,10 +75,13 @@ export async function POST(request: NextRequest) {
     for (const row of (settingsRes.results || []) as any[]) settings[row.key] = row.value
 
     // ── เบี้ยขยัน: pay and deduct terms differ per department; office has none ──
-    const terms = diligenceTermsFor(employee, settings)
+    const diligenceTerms = diligenceTermsFor(employee, settings)
     const late_days = attendanceRecords.filter(a => a.status === 'late').length
+    // ปิดเบี้ยขยันรายบุคคลได้ ทั้งยอดจ่ายและยอดหัก
     const { allowance: diligence_allowance, deduction: diligence_deduction } =
-      diligenceForPeriod(terms, late_days)
+      terms.no_diligence
+        ? { allowance: 0, deduction: 0 }
+        : diligenceForPeriod(diligenceTerms, late_days)
 
     // ── Incentive from the sales of the branches worked in the period ──
     // A branch with a tiered scale pays a fixed amount per step (e.g. Fashion B
@@ -76,8 +89,10 @@ export async function POST(request: NextRequest) {
     // or against the whole period's sales when the branch is set that way.
     // Branches with no scale fall back to the old percentage rate.
     const branchIds = new Set<string>()
-    for (const a of attendanceRecords) if (a.sales_point_id) branchIds.add(a.sales_point_id)
-    if (branchIds.size === 0 && employee.sales_point_id) branchIds.add(employee.sales_point_id)
+    if (terms.incentive_eligible) {
+      for (const a of attendanceRecords) if (a.sales_point_id) branchIds.add(a.sales_point_id)
+      if (branchIds.size === 0 && employee.sales_point_id) branchIds.add(employee.sales_point_id)
+    }
 
     const tiersRes = await db.prepare('SELECT * FROM incentive_tiers').all().catch(() => ({ results: [] }))
     const allTiers = (tiersRes.results || []) as any[]
@@ -172,8 +187,13 @@ export async function POST(request: NextRequest) {
     }
     incentive_total = Math.round(incentive_total * 100) / 100
 
+    // ส่วนที่บริษัทคู่สัญญาร่วมจ่ายต่องวด หักออกจากยอดที่เราจ่ายจริง
+    const partner_share = terms.salary_type === 'monthly'
+      ? Math.min(Math.max(0, terms.partner_share), cycle_amount)
+      : 0
+
     const total_pay = Math.round(
-      (calculation.total_pay + incentive_total + diligence_allowance - diligence_deduction) * 100
+      (calculation.total_pay + incentive_total + diligence_allowance - diligence_deduction - partner_share) * 100
     ) / 100
 
     return Response.json({
@@ -185,19 +205,33 @@ export async function POST(request: NextRequest) {
       attendance_records: attendanceRecords,
       sales_records: salesRecords,
       diligence: {
-        department: terms.department,
-        department_label: DEPARTMENT_LABELS[terms.department],
-        eligible: terms.eligible,
-        grace_minutes: terms.grace_minutes,
-        amount: terms.amount,
-        deduction_amount: terms.deduction,
-        mode: terms.mode,
+        department: diligenceTerms.department,
+        department_label: DEPARTMENT_LABELS[diligenceTerms.department],
+        eligible: diligenceTerms.eligible && !terms.no_diligence,
+        grace_minutes: diligenceTerms.grace_minutes,
+        amount: terms.no_diligence ? 0 : diligenceTerms.amount,
+        deduction_amount: terms.no_diligence ? 0 : diligenceTerms.deduction,
+        mode: diligenceTerms.mode,
+      },
+      pay_terms: {
+        salary_type: terms.salary_type,
+        pay_cycle: terms.pay_cycle,
+        pay_cycle_label: PAY_CYCLE_LABELS[terms.pay_cycle],
+        monthly_salary: terms.monthly_salary,
+        cycle_amount,
+        no_ot: terms.no_ot,
+        no_diligence: terms.no_diligence,
+        incentive_eligible: terms.incentive_eligible,
+        partner_name: terms.partner_name,
+        partner_share,
+        own_share: ownSharePerCycle(terms),
       },
       incentive_breakdown,
       calculation: {
         ...calculation,
         incentive_total, late_days,
         diligence_allowance, diligence_deduction,
+        partner_share,
         total_pay,
       },
     })

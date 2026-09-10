@@ -1,7 +1,8 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { generateId } from '@/lib/utils'
+import { normalizePayCycle } from '@/lib/pay-terms'
 import { getRoleFromRequest, isOfficeEmployee } from '@/lib/auth-server'
-import { ensureEmployeeScheduleColumns } from '@/lib/db-tables'
+import { ensureEmployeeScheduleColumns, ensurePayTermColumns } from '@/lib/db-tables'
 import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
@@ -78,6 +79,12 @@ export async function POST(request: NextRequest) {
       work_start?: string
       work_end?: string
       work_days?: string
+      pay_cycle?: string
+      no_ot?: number | boolean
+      no_diligence?: number | boolean
+      incentive_eligible?: number | boolean
+      partner_name?: string
+      partner_share?: number
     }
 
     const {
@@ -98,6 +105,15 @@ export async function POST(request: NextRequest) {
       work_days,
     } = body
 
+    // เงื่อนไขการจ่ายรายบุคคล
+    const payCycle = normalizePayCycle(body.pay_cycle)
+    const flag = (v: any, dflt = 0) => (v === undefined || v === null ? dflt : (v ? 1 : 0))
+    const noOt = flag(body.no_ot)
+    const noDiligence = flag(body.no_diligence)
+    const incentiveEligible = flag(body.incentive_eligible, 1)
+    const partnerName = body.partner_name || null
+    const partnerShare = Number(body.partner_share) || 0
+
     if (!name) {
       return Response.json({ error: 'Name is required' }, { status: 400 })
     }
@@ -113,14 +129,16 @@ export async function POST(request: NextRequest) {
     const generatedQR = qr_code || `EMP-${id.substring(0, 8).toUpperCase()}`
 
     await ensureEmployeeScheduleColumns(db)
+    await ensurePayTermColumns(db)
     await db.prepare(`
-      INSERT INTO employees (id, name, employee_type, job_title, salary_type, sales_point_id, daily_rate, monthly_salary, ot_rate, commission_rate, face_descriptor, face_photo, qr_code, phone, work_start, work_end, work_days, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      INSERT INTO employees (id, name, employee_type, job_title, salary_type, sales_point_id, daily_rate, monthly_salary, ot_rate, commission_rate, face_descriptor, face_photo, qr_code, phone, work_start, work_end, work_days, pay_cycle, no_ot, no_diligence, incentive_eligible, partner_name, partner_share, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
     `).bind(
       id, name, employee_type, job_title, salary_type, sales_point_id || null,
       daily_rate, monthly_salary, ot_rate, commission_rate,
       face_descriptor || null, face_photo || null, generatedQR, phone || null,
-      work_start || null, work_end || null, work_days || null
+      work_start || null, work_end || null, work_days || null,
+      payCycle, noOt, noDiligence, incentiveEligible, partnerName, partnerShare
     ).run()
 
     const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').bind(id).first()

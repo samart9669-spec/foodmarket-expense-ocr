@@ -172,6 +172,7 @@ export function overtimeHours(
 
 export interface PayrollCalculation {
   days_worked: number
+  /** ค่าแรงของงวด — ยอดคงที่สำหรับพนักงานรายเดือน, ค่าแรง x วัน สำหรับรายวัน */
   day_rate_total: number
   ot_hours_total: number
   ot_total: number
@@ -187,22 +188,29 @@ export function calculatePayroll(
   salesRecords: Array<{ amount: number }>,
   employee: { daily_rate: number; ot_rate: number; commission_rate: number; salary_type?: string },
   bonus: number = 0,
-  deductions: number = 0
+  deductions: number = 0,
+  /** ยอดคงที่ต่องวดของพนักงานรายเดือน และธงปิด OT รายบุคคล */
+  options: { fixedCycleAmount?: number; noOT?: boolean } = {},
 ): PayrollCalculation {
   // Each attendance row is one round of work. A กะพิเศษ adds a second round on
   // the same date, and pays its own shift wage unless it was marked OT-only.
   const paid = attendanceRecords.filter(a => a.pay_wage !== 0)
   const days_worked = paid.filter((a) => a.status === 'present' || a.status === 'late' || a.status === 'half').length
-  const day_rate_total = paid.reduce((sum, a) => {
-    if (a.status === 'half') return sum + employee.daily_rate * 0.5
-    if (a.status === 'present' || a.status === 'late') return sum + employee.daily_rate
-    return sum
-  }, 0)
+
+  // พนักงานรายเดือนได้ยอดคงที่ต่องวดตามที่ตกลง ไม่ได้คิดจากจำนวนวันที่มาทำงาน
+  const isFixed = (employee.salary_type || 'daily') === 'monthly' && (options.fixedCycleAmount ?? 0) > 0
+  const day_rate_total = isFixed
+    ? (options.fixedCycleAmount as number)
+    : paid.reduce((sum, a) => {
+      if (a.status === 'half') return sum + employee.daily_rate * 0.5
+      if (a.status === 'present' || a.status === 'late') return sum + employee.daily_rate
+      return sum
+    }, 0)
   // Monthly staff earn no OT; daily staff are paid in 30-minute blocks.
   // Each day is rounded down on its own before being summed — otherwise
   // leftover minutes from several days would add up into a paid half hour,
   // which is exactly what "ไม่ถึง 30 นาที ไม่นับ" rules out.
-  const ot_hours_total = isOTEligible(employee.salary_type)
+  const ot_hours_total = !options.noOT && isOTEligible(employee.salary_type)
     ? attendanceRecords.reduce((sum, a) => sum + roundOTToHalfHour(a.ot_hours || 0), 0)
     : 0
   const ot_total = ot_hours_total * employee.ot_rate
