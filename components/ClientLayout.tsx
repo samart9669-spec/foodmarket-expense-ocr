@@ -13,6 +13,7 @@ const PAGE_LABELS: Record<string, string> = {
   '/attendance/scan': 'สแกนเข้างาน',
   '/attendance/daily-approval': 'อนุมัติเวลางานรายวัน',
   '/sales': 'ยอดขาย',
+  '/sales/sync': 'ซิงก์ยอดขายจาก Google Sheet',
   '/payroll': 'เงินเดือน',
   '/shifts': 'ตั้งค่ากะงาน',
   '/payroll-settings': 'ตั้งค่าเงินเดือน',
@@ -41,6 +42,7 @@ function getBreadcrumbs(pathname: string): { label: string; href: string }[] {
   const label = PAGE_LABELS[pathname]
   if (label) {
     if (pathname.startsWith('/attendance/')) crumbs.push({ label: 'บันทึกการเข้างาน', href: '/attendance' })
+    if (pathname.startsWith('/sales/')) crumbs.push({ label: 'ยอดขาย', href: '/sales' })
     if (pathname.startsWith('/admin/')) crumbs.push({ label: 'จัดการระบบ', href: '/admin/manage' })
     if (pathname === '/employees/new') crumbs.push({ label: 'พนักงาน', href: '/employees' })
     crumbs.push({ label, href: pathname })

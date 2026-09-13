@@ -202,6 +202,10 @@ export async function runMigrations(db: any): Promise<string[]> {
   await run('ALTER TABLE employees ADD COLUMN partner_name TEXT', 'employees.partner_name')
   await run('ALTER TABLE employees ADD COLUMN partner_share REAL DEFAULT 0', 'employees.partner_share')
 
+  // ที่มาของรายการยอดขาย: 'manual' = คีย์เอง, 'sheet' = ซิงก์จาก Google Sheet
+  // ใช้แยกว่ารายการไหนแทนที่ได้เวลาซิงก์ซ้ำ โดยไม่ไปทับที่คีย์เอง
+  await run("ALTER TABLE sales ADD COLUMN source TEXT DEFAULT 'manual'", 'sales.source')
+
   // Tiered incentive: each branch pays a fixed amount once its sales pass a
   // threshold, e.g. Fashion B >16,200 = 45, >18,000 = 50. shift_id lets one
   // branch carry a different scale for a particular shift.

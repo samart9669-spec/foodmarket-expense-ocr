@@ -29,6 +29,15 @@ export async function ensurePayTermColumns(db: any) {
   }
 }
 
+/** ที่มาของรายการยอดขาย — เผื่อฐานข้อมูลยังไม่ได้ migrate */
+export async function ensureSalesSourceColumn(db: any) {
+  try {
+    await db.prepare("ALTER TABLE sales ADD COLUMN source TEXT DEFAULT 'manual'").run()
+  } catch {
+    // already present
+  }
+}
+
 export async function ensureAttendanceStatusColumns(db: any) {
   for (const column of [
     'early_out INTEGER DEFAULT 0',
