@@ -1,5 +1,5 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
-import { calculatePayroll } from '@/lib/utils'
+import { calculatePayroll, dayTypeMultiplier } from '@/lib/utils'
 import { diligenceTermsFor, diligenceForPeriod, DEPARTMENT_LABELS } from '@/lib/diligence'
 import { incentiveForSales, tiersFor, normalizeBasis } from '@/lib/incentive'
 import { payTermsOf, amountPerCycle, ownSharePerCycle, PAY_CYCLE_LABELS } from '@/lib/pay-terms'
@@ -55,6 +55,11 @@ export async function POST(request: NextRequest) {
 
     const salesRecords = salesResult.results as Array<{ amount: number }>
 
+    // ── Settings ──────────────────────────────────────────────────
+    const settingsRes = await db.prepare('SELECT key, value FROM payroll_settings').all()
+    const settings: Record<string, string> = {}
+    for (const row of (settingsRes.results || []) as any[]) settings[row.key] = row.value
+
     // เงื่อนไขการจ่ายรายบุคคล: ยอดคงที่ต่องวด, ไม่คิด OT, ไม่มีเบี้ยขยัน,
     // ได้ incentive หรือไม่ และส่วนที่บริษัทคู่สัญญาร่วมจ่าย
     const terms = payTermsOf(employee)
@@ -66,13 +71,17 @@ export async function POST(request: NextRequest) {
       { ...employee, salary_type: employee.salary_type || 'daily' },
       bonus,
       deductions,
-      { fixedCycleAmount: cycle_amount, noOT: terms.no_ot },
+      { fixedCycleAmount: cycle_amount, noOT: terms.no_ot, settings },
     )
 
-    // ── Settings ──────────────────────────────────────────────────
-    const settingsRes = await db.prepare('SELECT key, value FROM payroll_settings').all()
-    const settings: Record<string, string> = {}
-    for (const row of (settingsRes.results || []) as any[]) settings[row.key] = row.value
+    // สรุปวันที่ได้ตัวคูณพิเศษ ไว้แสดงที่มาของค่าแรง
+    const day_type_breakdown = ['holiday', 'weekend'].map(kind => {
+      const days = attendanceRecords.filter(a =>
+        (a as any).day_type === kind && a.pay_wage !== 0 &&
+        (a.status === 'present' || a.status === 'late' || a.status === 'half')
+      ).length
+      return { day_type: kind, days, multiplier: dayTypeMultiplier(kind, settings) }
+    }).filter(d => d.days > 0)
 
     // ── เบี้ยขยัน: pay and deduct terms differ per department; office has none ──
     const diligenceTerms = diligenceTermsFor(employee, settings)
@@ -88,9 +97,17 @@ export async function POST(request: NextRequest) {
     // >16,200 = 45, >18,000 = 50), compared against that day's sales by default
     // or against the whole period's sales when the branch is set that way.
     // Branches with no scale fall back to the old percentage rate.
+    // วันที่สแกนโดยไม่ได้เลือกสาขา ถือว่าอยู่สาขาต้นสังกัดของพนักงาน
+    // (เดิมข้ามวันเหล่านั้นไป ทำให้ incentive ได้แค่วันที่บันทึกสาขาไว้)
+    const branchOfRow = (a: { sales_point_id: string | null }) =>
+      a.sales_point_id || employee.sales_point_id || null
+
     const branchIds = new Set<string>()
     if (terms.incentive_eligible) {
-      for (const a of attendanceRecords) if (a.sales_point_id) branchIds.add(a.sales_point_id)
+      for (const a of attendanceRecords) {
+        const b = branchOfRow(a)
+        if (b) branchIds.add(b)
+      }
       if (branchIds.size === 0 && employee.sales_point_id) branchIds.add(employee.sales_point_id)
     }
 
@@ -159,7 +176,7 @@ export async function POST(request: NextRequest) {
       let branchSalesSum = 0
       let days = 0
       for (const a of attendanceRecords) {
-        if (a.sales_point_id !== spId) continue
+        if (branchOfRow(a) !== spId) continue
         if ((Number((a as any).session_no) || 1) > 1) continue
         if (a.status !== 'present' && a.status !== 'late' && a.status !== 'half') continue
         if (seenDates.has(a.date)) continue
@@ -227,6 +244,7 @@ export async function POST(request: NextRequest) {
         own_share: ownSharePerCycle(terms),
       },
       incentive_breakdown,
+      day_type_breakdown,
       calculation: {
         ...calculation,
         incentive_total, late_days,

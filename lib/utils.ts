@@ -183,14 +183,31 @@ export interface PayrollCalculation {
   total_pay: number
 }
 
+/** ตัวคูณค่าแรงตามประเภทของวัน — ค่าเริ่มต้นคือวันปกติ 1 เท่า */
+export function dayTypeMultiplier(
+  dayType: string | null | undefined,
+  settings: Record<string, string> = {},
+): number {
+  if (dayType === 'holiday') return parseFloat(settings.holiday_wage_multiplier ?? '') || 1
+  if (dayType === 'weekend') return parseFloat(settings.weekend_wage_multiplier ?? '') || 1
+  return 1
+}
+
 export function calculatePayroll(
-  attendanceRecords: Array<{ regular_hours: number; ot_hours: number; status: string; pay_wage?: number | null }>,
+  attendanceRecords: Array<{
+    regular_hours: number; ot_hours: number; status: string
+    pay_wage?: number | null; day_type?: string | null
+  }>,
   salesRecords: Array<{ amount: number }>,
   employee: { daily_rate: number; ot_rate: number; commission_rate: number; salary_type?: string },
   bonus: number = 0,
   deductions: number = 0,
-  /** ยอดคงที่ต่องวดของพนักงานรายเดือน และธงปิด OT รายบุคคล */
-  options: { fixedCycleAmount?: number; noOT?: boolean } = {},
+  /** ยอดคงที่ต่องวดของพนักงานรายเดือน ธงปิด OT และตัวคูณตามประเภทวัน */
+  options: {
+    fixedCycleAmount?: number
+    noOT?: boolean
+    settings?: Record<string, string>
+  } = {},
 ): PayrollCalculation {
   // Each attendance row is one round of work. A กะพิเศษ adds a second round on
   // the same date, and pays its own shift wage unless it was marked OT-only.
@@ -199,11 +216,14 @@ export function calculatePayroll(
 
   // พนักงานรายเดือนได้ยอดคงที่ต่องวดตามที่ตกลง ไม่ได้คิดจากจำนวนวันที่มาทำงาน
   const isFixed = (employee.salary_type || 'daily') === 'monthly' && (options.fixedCycleAmount ?? 0) > 0
+  // วันหยุดนักขัตฤกษ์และวันหยุดสุดสัปดาห์คิดค่าแรงตามตัวคูณที่ตั้งไว้
+  // (เดิมคิดค่าแรงเท่ากันทุกวัน ตัวคูณมีผลแค่ในหน้าอนุมัติรายวัน)
   const day_rate_total = isFixed
     ? (options.fixedCycleAmount as number)
     : paid.reduce((sum, a) => {
-      if (a.status === 'half') return sum + employee.daily_rate * 0.5
-      if (a.status === 'present' || a.status === 'late') return sum + employee.daily_rate
+      const rate = employee.daily_rate * dayTypeMultiplier(a.day_type, options.settings)
+      if (a.status === 'half') return sum + rate * 0.5
+      if (a.status === 'present' || a.status === 'late') return sum + rate
       return sum
     }, 0)
   // Monthly staff earn no OT; daily staff are paid in 30-minute blocks.

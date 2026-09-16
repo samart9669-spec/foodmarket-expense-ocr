@@ -323,7 +323,8 @@ export default function PayrollPage() {
   const exportCSV = () => {
     const headers = [
       'ชื่อ', 'ประเภท', 'งวด', 'วันทำงาน', 'ค่าแรง', 'OT ชั่วโมง',
-      'ค่า OT', 'ยอดขาย', 'ค่าคอม', 'โบนัส', 'หัก', 'รวม', 'สถานะ'
+      'ค่า OT', 'ยอดขาย', 'ค่าคอม', 'Incentive', 'เบี้ยขยันจ่าย', 'เบี้ยขยันหัก', 'มาสาย(วัน)',
+      'โบนัส', 'หัก', 'รวม', 'สถานะ'
     ]
     const rows = payrollList.map((p) => [
       p.employee_name,
@@ -335,6 +336,10 @@ export default function PayrollPage() {
       p.ot_total,
       p.sales_total,
       p.commission_total,
+      p.incentive_total || 0,
+      p.diligence_allowance || 0,
+      p.diligence_deduction || 0,
+      p.late_days || 0,
       p.bonus,
       p.deductions,
       p.total_pay,
@@ -680,6 +685,8 @@ export default function PayrollPage() {
                   <th className="table-header">ค่าแรง</th>
                   <th className="table-header">OT</th>
                   <th className="table-header">ค่าคอม</th>
+                  <th className="table-header">Incentive</th>
+                  <th className="table-header">เบี้ยขยัน</th>
                   <th className="table-header">โบนัส</th>
                   <th className="table-header">หัก</th>
                   <th className="table-header">รวม</th>
@@ -690,7 +697,7 @@ export default function PayrollPage() {
               <tbody className="divide-y divide-gray-100">
                 {payrollList.map((p) => editingId === p.id && editForm ? (
                   <tr key={p.id} className="bg-amber-50">
-                    <td colSpan={12} className="px-4 py-4">
+                    <td colSpan={14} className="px-4 py-4">
                       <p className="font-semibold text-gray-900 mb-1">แก้ไขเงินเดือน — {p.employee_name}</p>
                       <p className="text-xs text-gray-500 mb-3">งวด {p.period_start} ถึง {p.period_end}</p>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -807,6 +814,27 @@ export default function PayrollPage() {
                     <td className="table-cell">
                       {p.commission_total > 0 ? (
                         <span className="text-purple-600">{formatCurrency(p.commission_total)}</span>
+                      ) : '-'}
+                    </td>
+                    <td className="table-cell">
+                      {(p.incentive_total || 0) > 0 ? (
+                        <span className="text-teal-600">{formatCurrency(p.incentive_total || 0)}</span>
+                      ) : '-'}
+                    </td>
+                    <td className="table-cell">
+                      {/* เบี้ยขยันแสดงทั้งยอดที่จ่ายและยอดที่ถูกหักเพราะมาสาย */}
+                      {(p.diligence_allowance || 0) > 0 || (p.diligence_deduction || 0) > 0 ? (
+                        <span className="whitespace-nowrap">
+                          {(p.diligence_allowance || 0) > 0 && (
+                            <span className="text-emerald-600">{formatCurrency(p.diligence_allowance || 0)}</span>
+                          )}
+                          {(p.diligence_deduction || 0) > 0 && (
+                            <span className="text-red-600" title={`มาสาย ${p.late_days || 0} วัน`}>
+                              {(p.diligence_allowance || 0) > 0 ? ' ' : ''}
+                              -{formatCurrency(p.diligence_deduction || 0)}
+                            </span>
+                          )}
+                        </span>
                       ) : '-'}
                     </td>
                     <td className="table-cell">
