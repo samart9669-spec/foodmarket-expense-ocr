@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid'
+import { observesWeekendRate } from './diligence'
 
 export function generateId(): string {
   return uuidv4()
@@ -183,13 +184,22 @@ export interface PayrollCalculation {
   total_pay: number
 }
 
-/** ตัวคูณค่าแรงตามประเภทของวัน — ค่าเริ่มต้นคือวันปกติ 1 เท่า */
+/**
+ * ตัวคูณค่าแรงตามประเภทของวัน — ค่าเริ่มต้นคือวันปกติ 1 เท่า
+ *
+ * ตัวคูณวันเสาร์-อาทิตย์ใช้เฉพาะครัวกลางและออฟฟิศ ส่วนหน้าร้านเปิดทุกวัน
+ * อยู่แล้วจึงคิดเป็นวันทำงานปกติ ส่วนวันหยุดนักขัตฤกษ์ใช้กับทุกแผนก
+ */
 export function dayTypeMultiplier(
   dayType: string | null | undefined,
   settings: Record<string, string> = {},
+  department?: string | null,
 ): number {
   if (dayType === 'holiday') return parseFloat(settings.holiday_wage_multiplier ?? '') || 1
-  if (dayType === 'weekend') return parseFloat(settings.weekend_wage_multiplier ?? '') || 1
+  if (dayType === 'weekend') {
+    if (!observesWeekendRate(department)) return 1
+    return parseFloat(settings.weekend_wage_multiplier ?? '') || 1
+  }
   return 1
 }
 
@@ -207,6 +217,8 @@ export function calculatePayroll(
     fixedCycleAmount?: number
     noOT?: boolean
     settings?: Record<string, string>
+    /** แผนกของพนักงาน — ใช้ตัดสินว่าได้ตัวคูณวันเสาร์-อาทิตย์หรือไม่ */
+    department?: string | null
   } = {},
 ): PayrollCalculation {
   // Each attendance row is one round of work. A กะพิเศษ adds a second round on
@@ -221,7 +233,7 @@ export function calculatePayroll(
   const day_rate_total = isFixed
     ? (options.fixedCycleAmount as number)
     : paid.reduce((sum, a) => {
-      const rate = employee.daily_rate * dayTypeMultiplier(a.day_type, options.settings)
+      const rate = employee.daily_rate * dayTypeMultiplier(a.day_type, options.settings, options.department)
       if (a.status === 'half') return sum + rate * 0.5
       if (a.status === 'present' || a.status === 'late') return sum + rate
       return sum

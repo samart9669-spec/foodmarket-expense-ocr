@@ -5,6 +5,7 @@ export const runtime = 'edge'
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { getAuthHeaders, isOTEligible, lateMinutes, scheduledWorkHours, overtimeHours, roundOTToHalfHour } from '@/lib/utils'
+import { observesWeekendRate } from '@/lib/diligence'
 
 interface ShiftInfo {
   id: string; name: string; start_time: string; end_time: string
@@ -102,15 +103,20 @@ function computeRow(row: AttendanceRow, settings: Record<string, string>): Atten
       : overtimeHours(row.shift_end, row.check_out, actual_hours))
     : 0
 
-  const dayTypeObj = DAY_TYPES.find(d => d.value === row.day_type)
+  // ตัวคูณวันเสาร์-อาทิตย์ใช้เฉพาะครัวกลางและออฟฟิศ หน้าร้านเปิดทุกวันอยู่แล้ว
+  // จึงคิดเป็นวันทำงานปกติ ส่วนวันหยุดนักขัตฤกษ์ใช้กับทุกแผนก
+  const weekendCounts = observesWeekendRate(row.department)
+  const effectiveDayType = row.day_type === 'weekend' && !weekendCounts ? 'normal' : row.day_type
+
+  const dayTypeObj = DAY_TYPES.find(d => d.value === effectiveDayType)
   let multiplier = 1
   if (dayTypeObj?.multiplier_key) {
     multiplier = parseFloat(settings[dayTypeObj.multiplier_key] || '1') || 1
   }
 
-  const otMultiplierKey = row.day_type === 'holiday'
+  const otMultiplierKey = effectiveDayType === 'holiday'
     ? 'ot_multiplier_holiday'
-    : row.day_type === 'weekend'
+    : effectiveDayType === 'weekend'
     ? 'ot_multiplier_weekend'
     : 'ot_multiplier_weekday'
   const otMultiplier = parseFloat(settings[otMultiplierKey] || '1.5') || 1.5

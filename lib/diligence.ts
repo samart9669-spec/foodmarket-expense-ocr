@@ -11,6 +11,16 @@ export const DEPARTMENT_LABELS: Record<Department, string> = {
 /** Departments that receive a diligence allowance. */
 export const DILIGENCE_DEPARTMENTS: Department[] = ['sales', 'kitchen']
 
+/**
+ * แผนกที่คิดค่าแรงวันเสาร์-อาทิตย์ด้วยตัวคูณวันหยุดสุดสัปดาห์
+ * หน้าร้านเปิดทุกวันอยู่แล้ว เสาร์-อาทิตย์จึงถือเป็นวันทำงานปกติ
+ */
+export const WEEKEND_RATE_DEPARTMENTS: Department[] = ['kitchen', 'office']
+
+export function observesWeekendRate(department: string | null | undefined): boolean {
+  return WEEKEND_RATE_DEPARTMENTS.includes((department || '') as Department)
+}
+
 export function departmentOfEmployee(
   employee: { job_title?: string | null; employee_type?: string | null }
 ): Department {

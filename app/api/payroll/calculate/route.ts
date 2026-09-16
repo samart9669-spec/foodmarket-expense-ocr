@@ -1,6 +1,6 @@
 import { getRequestContext } from '@cloudflare/next-on-pages'
 import { calculatePayroll, dayTypeMultiplier } from '@/lib/utils'
-import { diligenceTermsFor, diligenceForPeriod, DEPARTMENT_LABELS } from '@/lib/diligence'
+import { diligenceTermsFor, diligenceForPeriod, DEPARTMENT_LABELS, departmentOfEmployee } from '@/lib/diligence'
 import { incentiveForSales, tiersFor, normalizeBasis } from '@/lib/incentive'
 import { payTermsOf, amountPerCycle, ownSharePerCycle, PAY_CYCLE_LABELS } from '@/lib/pay-terms'
 import { ensurePayTermColumns } from '@/lib/db-tables'
@@ -64,6 +64,8 @@ export async function POST(request: NextRequest) {
     // ได้ incentive หรือไม่ และส่วนที่บริษัทคู่สัญญาร่วมจ่าย
     const terms = payTermsOf(employee)
     const cycle_amount = amountPerCycle(terms)
+    // แผนกเป็นตัวกำหนดว่าได้ตัวคูณวันเสาร์-อาทิตย์หรือไม่
+    const department = departmentOfEmployee(employee)
 
     const calculation = calculatePayroll(
       attendanceRecords,
@@ -71,7 +73,7 @@ export async function POST(request: NextRequest) {
       { ...employee, salary_type: employee.salary_type || 'daily' },
       bonus,
       deductions,
-      { fixedCycleAmount: cycle_amount, noOT: terms.no_ot, settings },
+      { fixedCycleAmount: cycle_amount, noOT: terms.no_ot, settings, department },
     )
 
     // สรุปวันที่ได้ตัวคูณพิเศษ ไว้แสดงที่มาของค่าแรง
@@ -80,7 +82,7 @@ export async function POST(request: NextRequest) {
         (a as any).day_type === kind && a.pay_wage !== 0 &&
         (a.status === 'present' || a.status === 'late' || a.status === 'half')
       ).length
-      return { day_type: kind, days, multiplier: dayTypeMultiplier(kind, settings) }
+      return { day_type: kind, days, multiplier: dayTypeMultiplier(kind, settings, department) }
     }).filter(d => d.days > 0)
 
     // ── เบี้ยขยัน: pay and deduct terms differ per department; office has none ──
