@@ -309,7 +309,7 @@ function Slip({ row, data, branch, payDate }: { row: Row; data: Data; branch: Br
         <thead>
           <tr className="bg-gray-100">
             <th className="border border-gray-300 px-1.5 py-1 text-left">รายได้<br />Earnings</th>
-            <th className="border border-gray-300 px-1.5 py-1">จำนวน<br />Namber</th>
+            <th className="border border-gray-300 px-1.5 py-1">จำนวน<br />Number</th>
             <th className="border border-gray-300 px-1.5 py-1">จำนวนเงิน<br />Amount</th>
             <th className="border border-gray-300 px-1.5 py-1 text-left">รายการหัก<br />Deductions</th>
             <th className="border border-gray-300 px-1.5 py-1">จำนวนเงิน<br />Amount</th>
@@ -353,7 +353,7 @@ function Slip({ row, data, branch, payDate }: { row: Row; data: Data; branch: Br
             <td className="border border-gray-300 px-1.5 py-1">เงินได้อื่นๆ</td>
             <td className="border border-gray-300 px-1.5 py-1"></td>
             <td className="border border-gray-300 px-1.5 py-1 text-right">{num(row.other_income + row.tax)}</td>
-            <td className="border border-gray-300 px-1.5 py-1">Tex หักภาษี 3%</td>
+            <td className="border border-gray-300 px-1.5 py-1">Tax หักภาษี 3%</td>
             <td className="border border-gray-300 px-1.5 py-1 text-right">{num(row.tax)}</td>
             <td className="border border-gray-300 px-1.5 py-1 text-center">Net To Pay</td>
           </tr>
