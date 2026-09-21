@@ -37,6 +37,7 @@ export default function SalesSyncPage() {
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
   const [origin, setOrigin] = useState('')
+  const [sheetTab, setSheetTab] = useState('')
 
   useEffect(() => { setOrigin(window.location.origin) }, [])
 
@@ -94,13 +95,28 @@ export default function SalesSyncPage() {
     }
   }
 
-  const appsScript = `// วางใน Google Sheet: ส่วนขยาย > Apps Script แล้วตั้ง Trigger รายวัน
-// ให้รันฟังก์ชัน syncSalesToPayroll
+  // ดึง ID ของสเปรดชีตจากลิงก์ที่ตั้งไว้ เพื่อให้สคริปต์เปิดชีทได้ตรง ๆ
+  // ลิงก์แบบเผยแพร่คือ /d/e/2PACX-... ซึ่งเป็นโทเคนเผยแพร่ ไม่ใช่ ID ของไฟล์
+  const sheetId = (csvUrl.match(/\/spreadsheets\/d\/(?!e\/)([a-zA-Z0-9-_]+)/) || [])[1] || ''
+
+  const appsScript = `// วางใน Apps Script ของชีท (ส่วนขยาย > Apps Script)
+// หรือสร้างเป็นโปรเจกต์แยกก็ได้ เพราะเปิดชีทด้วย ID ตรง ๆ
+// แล้วตั้ง Trigger แบบ Time-driven > Day timer ให้รันฟังก์ชัน syncSalesToPayroll
 const PAYROLL_URL = '${origin || 'https://foodmarket-payroll.pages.dev'}/api/sales/sync'
 const SYNC_KEY = '${syncKey || '<กดสร้างคีย์ในหน้าซิงก์ก่อน>'}'
+// ID ของสเปรดชีต (ส่วนที่อยู่หลัง /d/ ในลิงก์)
+const SHEET_ID = '${sheetId || '<วางลิงก์ชีทในช่องด้านบนก่อน แล้วคัดลอกสคริปต์ใหม่>'}'
+// ชื่อแท็บชีท เว้นว่างไว้ = ใช้แท็บแรก
+const SHEET_NAME = '${sheetTab}'
 
 function syncSalesToPayroll() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet()
+  // getActiveSpreadsheet() ใช้ได้เฉพาะสคริปต์ที่ผูกกับชีทและเปิดชีทอยู่
+  // จึงเปิดด้วย ID เป็นหลัก ทำให้ตั้ง Trigger รันเองได้โดยไม่ต้องเปิดชีท
+  const ss = SHEET_ID ? SpreadsheetApp.openById(SHEET_ID) : SpreadsheetApp.getActiveSpreadsheet()
+  if (!ss) throw new Error('เปิดสเปรดชีตไม่ได้ — ตรวจ SHEET_ID และสิทธิ์เข้าถึงไฟล์')
+  const sheet = SHEET_NAME ? ss.getSheetByName(SHEET_NAME) : ss.getSheets()[0]
+  if (!sheet) throw new Error('ไม่พบแท็บชีทชื่อ ' + SHEET_NAME)
+
   const values = sheet.getDataRange().getValues()
   const header = values[0].map(h => String(h).trim().toLowerCase())
 
@@ -121,6 +137,8 @@ function syncSalesToPayroll() {
     })
   }
 
+  if (rows.length === 0) throw new Error('ไม่พบข้อมูลยอดขายในชีท')
+
   const res = UrlFetchApp.fetch(PAYROLL_URL, {
     method: 'post',
     contentType: 'application/json',
@@ -128,7 +146,10 @@ function syncSalesToPayroll() {
     payload: JSON.stringify({ rows: rows }),
     muteHttpExceptions: true,
   })
-  Logger.log(res.getContentText())
+  const body = res.getContentText()
+  Logger.log(body)
+  // โยน error เมื่อไม่สำเร็จ เพื่อให้ Trigger แจ้งเตือนทางอีเมล
+  if (res.getResponseCode() >= 300) throw new Error('ซิงก์ไม่สำเร็จ: ' + body)
 }`
 
   return (
@@ -192,8 +213,15 @@ function syncSalesToPayroll() {
           <input
             type="text"
             readOnly
-            className="flex-1 min-w-[280px] border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono bg-gray-50"
+            className="flex-1 min-w-[240px] border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono bg-gray-50"
             value={syncKey || '(ยังไม่มีคีย์)'}
+          />
+          <input
+            type="text"
+            className="w-44 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            placeholder="ชื่อแท็บชีท (ไม่ใส่ = แท็บแรก)"
+            value={sheetTab}
+            onChange={e => setSheetTab(e.target.value)}
           />
           <button
             onClick={() => { const k = randomKey(); setSyncKey(k); saveSettings({ sync_key: k }) }}
@@ -209,6 +237,12 @@ function syncSalesToPayroll() {
             คัดลอกสคริปต์
           </button>
         </div>
+        {!sheetId && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-2 text-xs">
+            ยังไม่ได้ใส่ลิงก์ชีทในวิธีที่ 1 — สคริปต์จะไม่มี SHEET_ID
+            ให้วางลิงก์ชีทแล้วกดบันทึกก่อน จากนั้นคัดลอกสคริปต์ใหม่
+          </div>
+        )}
         <pre className="bg-gray-900 text-gray-100 rounded-lg p-3 text-[11px] leading-relaxed overflow-x-auto">
 {appsScript}
         </pre>
