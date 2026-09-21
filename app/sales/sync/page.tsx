@@ -38,6 +38,7 @@ export default function SalesSyncPage() {
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
   const [origin, setOrigin] = useState('')
   const [sheetTab, setSheetTab] = useState('')
+  const [aliases, setAliases] = useState<Record<string, string>>({})
 
   useEffect(() => { setOrigin(window.location.origin) }, [])
 
@@ -50,6 +51,7 @@ export default function SalesSyncPage() {
         setCsvUrl(d.csv_url || '')
         setSyncKey(d.sync_key || '')
         setBranches(d.branches || [])
+        setAliases(d.aliases || {})
         setLast(d.last_sync || null)
       })
       .catch(() => setToast({ msg: 'เชื่อมต่อไม่สำเร็จ', ok: false }))
@@ -58,7 +60,7 @@ export default function SalesSyncPage() {
 
   useEffect(() => { load() }, [load])
 
-  const saveSettings = async (patch: { csv_url?: string; sync_key?: string }) => {
+  const saveSettings = async (patch: { csv_url?: string; sync_key?: string; aliases?: Record<string, string> }) => {
     setBusy(true)
     try {
       const res = await fetch('/api/sales/sync', {
@@ -118,23 +120,100 @@ function syncSalesToPayroll() {
   if (!sheet) throw new Error('ไม่พบแท็บชีทชื่อ ' + SHEET_NAME)
 
   const values = sheet.getDataRange().getValues()
-  const header = values[0].map(h => String(h).trim().toLowerCase())
-
-  const iDate = header.findIndex(h => ['date','วันที่'].includes(h))
-  const iBranch = header.findIndex(h => ['branch','สาขา','จุดขาย'].includes(h))
-  const iAmount = header.findIndex(h => ['amount','ยอดขาย','ยอด'].includes(h))
-  if (iDate < 0 || iBranch < 0 || iAmount < 0) throw new Error('ไม่พบคอลัมน์ วันที่ / สาขา / ยอดขาย')
-
   const rows = []
-  for (let i = 1; i < values.length; i++) {
-    const r = values[i]
-    if (!r[iBranch] || r[iAmount] === '') continue
-    const d = r[iDate]
-    rows.push({
-      date: d instanceof Date ? Utilities.formatDate(d, 'Asia/Bangkok', 'yyyy-MM-dd') : String(d),
-      branch: String(r[iBranch]),
-      amount: r[iAmount],
-    })
+  const norm = v => String(v == null ? '' : v).replace(/[\\s_\\-.]/g, '').toLowerCase()
+  const toNum = v => {
+    if (typeof v === 'number') return isFinite(v) ? v : null
+    const c = String(v == null ? '' : v).replace(/[,\\s฿]/g, '')
+    if (!c) return null
+    const n = Number(c)
+    return isFinite(n) ? n : null
+  }
+
+  // ── รูปแบบที่ 1: รายการ (วันที่ / สาขา / ยอดขาย อยู่คนละคอลัมน์) ──
+  const header = values[0].map(norm)
+  const iDate = header.findIndex(h => ['date','วันที่'].indexOf(h) >= 0)
+  const iBranch = header.findIndex(h => ['branch','สาขา','จุดขาย'].indexOf(h) >= 0)
+  const iAmount = header.findIndex(h => ['amount','ยอดขาย','ยอด'].indexOf(h) >= 0)
+
+  const fmt = d => Utilities.formatDate(d, 'Asia/Bangkok', 'yyyy-MM-dd')
+
+  if (iDate >= 0 && iBranch >= 0 && iAmount >= 0) {
+    for (let i = 1; i < values.length; i++) {
+      const r = values[i]
+      if (!r[iBranch] || r[iAmount] === '') continue
+      const d = r[iDate]
+      rows.push({
+        date: d instanceof Date ? fmt(d) : String(d),
+        branch: String(r[iBranch]),
+        amount: r[iAmount],
+      })
+    }
+  } else {
+    // ── รูปแบบที่ 2: ตารางไขว้ (แถว = วัน, คอลัมน์ = สาขา) ──
+    const THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน',
+                         'กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม']
+
+    // หาแถวหัวตาราง เช่น "วัน/สาขา | อโศก | พระราม 3 | ... | รวม"
+    let hi = -1
+    for (let i = 0; i < Math.min(values.length, 80); i++) {
+      const first = norm(values[i][0])
+      const filled = values[i].slice(1).filter(c => String(c || '').trim() !== '')
+      if (filled.length >= 2 && (first.indexOf('วัน') >= 0 || first.indexOf('date') >= 0)) { hi = i; break }
+    }
+    if (hi < 0) throw new Error('ไม่พบคอลัมน์ วันที่ / สาขา / ยอดขาย และไม่พบหัวตารางแบบไขว้')
+
+    // เดือน/ปี จากข้อความเหนือหัวตาราง เช่น "ยอดขายรายวันตามสาขา — กันยายน 2569"
+    let year = 0, month = 0
+    for (let i = hi; i >= 0 && i > hi - 6; i--) {
+      const text = values[i].join(' ')
+      const mi = THAI_MONTHS.findIndex(m => text.indexOf(m) >= 0)
+      const ym = text.match(/(\\d{4})/)
+      if (mi >= 0 && ym) {
+        year = Number(ym[1]); if (year > 2400) year -= 543
+        month = mi + 1
+        break
+      }
+    }
+    if (!year) { const t = new Date(); year = t.getFullYear(); month = t.getMonth() + 1 }
+
+    const cols = []
+    for (let c = 1; c < values[hi].length; c++) {
+      const name = String(values[hi][c] || '').trim()
+      if (!name) continue
+      if (norm(name).indexOf('รวม') === 0 || norm(name) === 'total') continue
+      cols.push({ c: c, name: name })
+    }
+    if (cols.length === 0) throw new Error('ไม่พบคอลัมน์สาขาในหัวตาราง')
+
+    for (let i = hi + 1; i < values.length; i++) {
+      const label = values[i][0]
+      const text = String(label == null ? '' : label).trim()
+      if (!text) continue
+      if (norm(text).indexOf('รวม') === 0) break
+
+      let date = null
+      if (label instanceof Date) {
+        date = fmt(label)
+      } else {
+        // "อ 1/9" — ตัดชื่อวันออก เหลือ วัน/เดือน แล้วเติมปีจากหัวตาราง
+        const m = text.match(/(\\d{1,2})\\s*[/-]\\s*(\\d{1,2})/)
+        if (m) {
+          const dd = Number(m[1]), mm = Number(m[2])
+          if (dd >= 1 && dd <= 31 && mm >= 1 && mm <= 12) {
+            date = year + '-' + ('0' + mm).slice(-2) + '-' + ('0' + dd).slice(-2)
+          }
+        }
+      }
+      if (!date) continue
+
+      for (let k = 0; k < cols.length; k++) {
+        const amount = toNum(values[i][cols[k].c])
+        // ว่างหรือศูนย์ = ยังไม่มียอดขาย ข้ามไปไม่ให้ทับของเดิม
+        if (amount === null || amount === 0) continue
+        rows.push({ date: date, branch: cols[k].name, amount: amount })
+      }
+    }
   }
 
   if (rows.length === 0) throw new Error('ไม่พบข้อมูลยอดขายในชีท')
@@ -271,14 +350,47 @@ function syncSalesToPayroll() {
         )}
 
         {result && result.unmatched.length > 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
-            <p className="font-medium">ชื่อสาขาในชีทที่จับคู่ไม่ได้</p>
-            <ul className="mt-1 list-disc list-inside">
-              {result.unmatched.map(u => <li key={u.branch}>{u.branch} — {u.rows} แถว</li>)}
-            </ul>
-            <p className="mt-2 text-xs">
-              แก้ชื่อในชีทให้ตรงกับสาขาในระบบ หรือเปลี่ยนชื่อสาขาที่หน้าจัดการสาขา
-            </p>
+          <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800 space-y-2">
+            <p className="font-medium">ชื่อสาขาในชีทที่จับคู่ไม่ได้ — เลือกว่าตรงกับสาขาไหน</p>
+            {result.unmatched.map(u => (
+              <div key={u.branch} className="flex flex-wrap items-center gap-2">
+                <span className="min-w-[140px] font-mono text-xs">{u.branch}</span>
+                <span className="text-xs text-amber-700">({u.rows} แถว)</span>
+                <select
+                  className="border border-amber-300 rounded-lg px-2 py-1 text-xs bg-white text-gray-800"
+                  value={aliases[u.branch] ?? '__unset__'}
+                  onChange={e => {
+                    const v = e.target.value
+                    setAliases(prev => {
+                      const next = { ...prev }
+                      if (v === '__unset__') delete next[u.branch]
+                      else next[u.branch] = v === '__skip__' ? '' : v
+                      return next
+                    })
+                  }}
+                >
+                  <option value="__unset__">-- ยังไม่จับคู่ --</option>
+                  <option value="__skip__">ไม่นำเข้าชื่อนี้</option>
+                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              </div>
+            ))}
+            <button
+              onClick={() => saveSettings({ aliases })}
+              disabled={busy}
+              className="px-3 py-1.5 text-xs rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-40"
+            >
+              บันทึกการจับคู่ แล้วซิงก์ใหม่อีกครั้ง
+            </button>
+          </div>
+        )}
+
+        {Object.keys(aliases).length > 0 && (
+          <div className="text-xs text-gray-500">
+            <span className="font-medium text-gray-700">การจับคู่ที่บันทึกไว้: </span>
+            {Object.entries(aliases).map(([k, v]) =>
+              `${k} → ${v ? (branches.find(b => b.id === v)?.name || v) : 'ไม่นำเข้า'}`
+            ).join(' · ')}
           </div>
         )}
 
@@ -302,8 +414,14 @@ function syncSalesToPayroll() {
       <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-800">
         <p className="font-medium">รูปแบบชีทที่รองรับ</p>
         <p className="mt-1">
-          ต้องมีหัวคอลัมน์ <strong>วันที่</strong> (หรือ date), <strong>สาขา</strong> (หรือ branch/จุดขาย)
-          และ <strong>ยอดขาย</strong> (หรือ amount) จะมีคอลัมน์อื่นเพิ่มก็ได้
+          <strong>แบบที่ 1 รายการ</strong> — มีหัวคอลัมน์ วันที่ (หรือ date), สาขา (หรือ branch/จุดขาย)
+          และ ยอดขาย (หรือ amount) จะมีคอลัมน์อื่นเพิ่มก็ได้
+        </p>
+        <p className="mt-1">
+          <strong>แบบที่ 2 ตารางไขว้</strong> — แถวคือวัน คอลัมน์คือสาขา เช่นหัวตาราง
+          &quot;วัน/สาขา | อโศก | พระราม 3 | ...&quot; ระบบจะข้ามคอลัมน์ &quot;รวม&quot;
+          และหยุดอ่านที่แถว &quot;รวมทั้งเดือน&quot; วันที่เขียนสั้นแบบ &quot;อ 1/9&quot; ได้
+          โดยเอาปีจากหัวตาราง เช่น &quot;— กันยายน 2569&quot; ช่องที่เป็น 0 หรือว่างจะไม่นำเข้า
         </p>
         <p className="mt-1">
           วันที่รองรับ 2026-09-13, 13/09/2026 และ 13/09/2569 (พ.ศ.) · ยอดขายใส่คอมมาได้

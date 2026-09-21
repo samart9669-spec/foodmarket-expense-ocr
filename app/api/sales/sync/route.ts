@@ -23,6 +23,9 @@ export const runtime = 'edge'
 const URL_KEY = 'sales_sync_csv_url'
 const SYNC_KEY = 'sales_sync_key'
 const LAST_KEY = 'sales_sync_last'
+// จับคู่ชื่อสาขาในชีทกับสาขาในระบบ { "ชื่อในชีท": "sales_point_id" }
+// ค่าว่างหมายถึงไม่นำเข้าชื่อนั้น
+const ALIAS_KEY = 'sales_sync_aliases'
 
 async function ensureSettings(db: any) {
   await db.prepare(`
@@ -75,10 +78,25 @@ async function importRows(db: any, rows: ParsedSalesRow[], skipped: any[]): Prom
   const branchRes = await db.prepare('SELECT id, name FROM sales_points').all()
   const branches = (branchRes.results || []) as Array<{ id: string; name: string }>
 
+  // ชื่อที่ผู้ใช้จับคู่ไว้เองมาก่อนการเดาชื่อ
+  let aliases: Record<string, string> = {}
+  try {
+    aliases = JSON.parse((await getSetting(db, ALIAS_KEY)) || '{}')
+  } catch {
+    aliases = {}
+  }
+  const validIds = new Set(branches.map(b => b.id))
+
   const unmatchedCount = new Map<string, number>()
   const matched: Array<{ sales_point_id: string; row: ParsedSalesRow }> = []
 
   for (const row of rows) {
+    const alias = aliases[row.branch]
+    if (alias !== undefined) {
+      // จับคู่ไว้กับค่าว่าง = ตั้งใจไม่นำเข้าชื่อนี้
+      if (alias && validIds.has(alias)) matched.push({ sales_point_id: alias, row })
+      continue
+    }
     const branch = matchBranch(branches, row.branch)
     if (!branch) {
       unmatchedCount.set(row.branch, (unmatchedCount.get(row.branch) || 0) + 1)
@@ -126,10 +144,11 @@ export async function GET(request: NextRequest) {
     const auth = await authorize(request, db)
     if (!auth.ok) return Response.json({ error: 'Forbidden' }, { status: 403 })
 
-    const [url, key, last] = await Promise.all([
+    const [url, key, last, aliasRaw] = await Promise.all([
       getSetting(db, URL_KEY),
       getSetting(db, SYNC_KEY),
       getSetting(db, LAST_KEY),
+      getSetting(db, ALIAS_KEY),
     ])
 
     const branchRes = await db.prepare('SELECT id, name FROM sales_points ORDER BY name').all()
@@ -138,6 +157,7 @@ export async function GET(request: NextRequest) {
       csv_url: url,
       sync_key: key,
       last_sync: last ? JSON.parse(last) : null,
+      aliases: aliasRaw ? JSON.parse(aliasRaw) : {},
       branches: branchRes.results || [],
     })
   } catch (error) {
@@ -165,7 +185,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({})) as {
       rows?: Array<{ date?: string; branch?: string; amount?: string | number; notes?: string }>
       csv?: string
-      settings?: { csv_url?: string; sync_key?: string }
+      settings?: { csv_url?: string; sync_key?: string; aliases?: Record<string, string> }
     }
 
     // บันทึกการตั้งค่าอย่างเดียว (เฉพาะผู้ดูแล ไม่ให้คีย์ซิงก์แก้การตั้งค่าได้)
@@ -176,6 +196,9 @@ export async function POST(request: NextRequest) {
       }
       if (body.settings.sync_key !== undefined) {
         await setSetting(db, SYNC_KEY, body.settings.sync_key.trim())
+      }
+      if (body.settings.aliases !== undefined) {
+        await setSetting(db, ALIAS_KEY, JSON.stringify(body.settings.aliases))
       }
       return Response.json({ success: true, csv_url: await getSetting(db, URL_KEY) })
     }
