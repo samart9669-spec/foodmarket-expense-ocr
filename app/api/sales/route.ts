@@ -78,6 +78,13 @@ export async function POST(request: NextRequest) {
     const salesPoint = await db.prepare('SELECT id FROM sales_points WHERE id = ?').bind(sales_point_id).first()
     if (!salesPoint) return Response.json({ error: 'Sales point not found' }, { status: 404 })
 
+    // ยอดขายของ "สาขา + วันที่" มีได้รายการเดียว บันทึกซ้ำคือการแก้ยอดเดิม
+    // ถ้าปล่อยให้มีหลายรายการ ยอดรวมของวันนั้นและ incentive จะถูกนับซ้ำ
+    const prev = await db.prepare(
+      'DELETE FROM sales WHERE sales_point_id = ? AND date = ?'
+    ).bind(sales_point_id, date).run()
+    const replaced = prev?.meta?.changes || 0
+
     const id = generateId()
     await db.prepare(
       'INSERT INTO sales (id, employee_id, sales_point_id, date, amount, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -89,7 +96,7 @@ export async function POST(request: NextRequest) {
       LEFT JOIN sales_points sp ON s.sales_point_id = sp.id WHERE s.id = ?
     `).bind(id).first()
 
-    return Response.json({ sale }, { status: 201 })
+    return Response.json({ sale, replaced }, { status: 201 })
   } catch (error) {
     console.error('POST /api/sales error:', error)
     return Response.json({ error: 'Failed to create sale record' }, { status: 500 })

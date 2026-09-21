@@ -168,6 +168,12 @@ export async function runMigrations(db: any): Promise<string[]> {
       `SELECT "notnull" AS nn FROM pragma_table_info('sales') WHERE name = 'employee_id'`
     ).first() as any
     if (col && Number(col.nn) === 1) {
+      // ตารางเดิมอาจมีคอลัมน์ source แล้ว ต้องขนมาด้วย ไม่งั้นรายการที่ซิงก์มาจาก
+      // ชีทจะกลายเป็น 'manual' แล้วซิงก์รอบถัดไปจะแทนที่ไม่ได้ กลายเป็นยอดซ้ำ
+      const hasSource = await db.prepare(
+        `SELECT 1 AS ok FROM pragma_table_info('sales') WHERE name = 'source'`
+      ).first() as any
+      const sourceCol = hasSource ? ', source' : ''
       await db.batch([
         db.prepare(`
           CREATE TABLE sales_rebuild (
@@ -177,11 +183,12 @@ export async function runMigrations(db: any): Promise<string[]> {
             date TEXT NOT NULL,
             amount REAL NOT NULL,
             notes TEXT,
-            created_at TEXT DEFAULT (datetime('now', 'localtime'))
+            created_at TEXT DEFAULT (datetime('now', 'localtime')),
+            source TEXT DEFAULT 'manual'
           )
         `),
-        db.prepare(`INSERT INTO sales_rebuild (id, employee_id, sales_point_id, date, amount, notes, created_at)
-                    SELECT id, employee_id, sales_point_id, date, amount, notes, created_at FROM sales`),
+        db.prepare(`INSERT INTO sales_rebuild (id, employee_id, sales_point_id, date, amount, notes, created_at${sourceCol})
+                    SELECT id, employee_id, sales_point_id, date, amount, notes, created_at${sourceCol} FROM sales`),
         db.prepare('DROP TABLE sales'),
         db.prepare('ALTER TABLE sales_rebuild RENAME TO sales'),
       ])

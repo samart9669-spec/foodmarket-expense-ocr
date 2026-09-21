@@ -10,6 +10,8 @@ interface LastSync {
   via: string
   imported: number
   replaced: number
+  replaced_manual?: number
+  duplicates?: number
   skipped: number
   unmatched: Array<{ branch: string; rows: number }>
 }
@@ -17,6 +19,8 @@ interface LastSync {
 interface SyncResult {
   imported: number
   replaced: number
+  replaced_manual?: number
+  duplicates?: number
   unmatched: Array<{ branch: string; rows: number }>
   skipped: Array<{ line: number; reason: string; raw: string }>
 }
@@ -90,6 +94,31 @@ export default function SalesSyncPage() {
       setResult(d)
       setLast(d.last_sync)
       setToast({ msg: `ซิงก์สำเร็จ นำเข้า ${d.imported} รายการ`, ok: true })
+    } catch {
+      setToast({ msg: 'เชื่อมต่อไม่สำเร็จ', ok: false })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // ล้างยอดซ้ำที่ค้างจากการซิงก์รุ่นก่อน — เหลือสาขาละรายการต่อวัน
+  const dedupe = async () => {
+    if (!confirm('ตรวจหายอดขายที่ซ้ำกันของสาขาเดียวกันในวันเดียวกัน แล้วเก็บไว้รายการเดียว?')) return
+    setBusy(true)
+    try {
+      const res = await fetch('/api/sales/sync', {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'dedupe' }),
+      })
+      const d = await res.json() as any
+      if (!res.ok) { setToast({ msg: d.error || 'ล้างรายการซ้ำไม่สำเร็จ', ok: false }); return }
+      setToast({
+        msg: d.removed > 0
+          ? `ล้างรายการซ้ำแล้ว ${d.removed} รายการ จาก ${d.pairs} วัน/สาขา`
+          : 'ไม่พบยอดขายที่ซ้ำกัน',
+        ok: true,
+      })
     } catch {
       setToast({ msg: 'เชื่อมต่อไม่สำเร็จ', ok: false })
     } finally {
@@ -241,8 +270,8 @@ function syncSalesToPayroll() {
         <h1 className="text-2xl font-bold text-gray-900">ซิงก์ยอดขายจาก Google Sheet</h1>
         <p className="text-sm text-gray-500 mt-1">
           ดึงยอดขายรายสาขาจากชีทเข้าระบบ ใช้คำนวณ incentive ให้อัตโนมัติ
-          ซิงก์ซ้ำได้ไม่ซ้ำซ้อน — รายการของ &quot;สาขา + วันที่&quot; เดิมที่มาจากชีทจะถูกแทนที่
-          ส่วนรายการที่คีย์เองในระบบจะไม่ถูกแตะ
+          ซิงก์กี่ครั้งยอดก็ไม่เบิ้ล — หนึ่งสาขามียอดได้วันละรายการเดียว
+          ยอดจากชีทจะแทนที่ของเดิมของ &quot;สาขา + วันที่&quot; นั้น รวมถึงที่เคยคีย์เองไว้
         </p>
       </div>
 
@@ -342,6 +371,8 @@ function syncSalesToPayroll() {
               ล่าสุด {last.at} ({last.via === 'auto' ? 'อัตโนมัติจากชีท' : 'กดเอง'}) ·
               นำเข้า <strong>{last.imported}</strong> รายการ ·
               แทนที่ของเดิม {last.replaced} · ข้าม {last.skipped}
+              {(last.replaced_manual ?? 0) > 0 && ` · ทับรายการที่คีย์เอง ${last.replaced_manual}`}
+              {(last.duplicates ?? 0) > 0 && ` · รวมช่องซ้ำในชีท ${last.duplicates}`}
             </p>
             {last.unmatched?.length > 0 && (
               <p className="text-amber-700">
@@ -352,6 +383,20 @@ function syncSalesToPayroll() {
         ) : (
           <p className="text-sm text-gray-500">ยังไม่เคยซิงก์</p>
         )}
+
+        {/* ยอดที่เบิ้ลอยู่แล้วจากการซิงก์รุ่นก่อน ล้างได้จากตรงนี้ */}
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <button
+            onClick={dedupe}
+            disabled={busy}
+            className="px-3 py-1.5 text-xs rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-40"
+          >
+            ล้างยอดขายที่ซ้ำ
+          </button>
+          <span className="text-xs text-gray-500">
+            ถ้าเคยซิงก์แล้วยอดเบิ้ล กดปุ่มนี้เพื่อให้เหลือสาขาละรายการต่อวัน
+          </span>
+        </div>
 
         {unmatched.length > 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800 space-y-2">

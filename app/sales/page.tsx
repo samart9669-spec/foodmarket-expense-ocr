@@ -88,6 +88,9 @@ export default function SalesPage() {
         }),
       })
       if (res.ok) {
+        const data = await res.json() as any
+        // หนึ่งสาขามียอดได้วันละรายการเดียว บันทึกซ้ำคือการแก้ยอดเดิม
+        if (data.replaced > 0) alert('มียอดของสาขานี้ในวันนี้อยู่แล้ว — แก้เป็นยอดใหม่ให้แทน')
         setShowForm(false)
         setForm({ employee_id: '', sales_point_id: '', amount: '', notes: '' })
         fetchSales()
