@@ -97,6 +97,10 @@ export default function SalesSyncPage() {
     }
   }
 
+  // ชื่อที่จับคู่ไม่ได้ — จากการซิงก์รอบนี้ หรือจากผลซิงก์ล่าสุดที่บันทึกไว้
+  // (ซิงก์อัตโนมัติจากชีทก็ต้องแก้ได้ ไม่ใช่เฉพาะตอนกดซิงก์เอง)
+  const unmatched = result?.unmatched ?? last?.unmatched ?? []
+
   // ดึง ID ของสเปรดชีตจากลิงก์ที่ตั้งไว้ เพื่อให้สคริปต์เปิดชีทได้ตรง ๆ
   // ลิงก์แบบเผยแพร่คือ /d/e/2PACX-... ซึ่งเป็นโทเคนเผยแพร่ ไม่ใช่ ID ของไฟล์
   const sheetId = (csvUrl.match(/\/spreadsheets\/d\/(?!e\/)([a-zA-Z0-9-_]+)/) || [])[1] || ''
@@ -349,10 +353,10 @@ function syncSalesToPayroll() {
           <p className="text-sm text-gray-500">ยังไม่เคยซิงก์</p>
         )}
 
-        {result && result.unmatched.length > 0 && (
+        {unmatched.length > 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800 space-y-2">
             <p className="font-medium">ชื่อสาขาในชีทที่จับคู่ไม่ได้ — เลือกว่าตรงกับสาขาไหน</p>
-            {result.unmatched.map(u => (
+            {unmatched.map(u => (
               <div key={u.branch} className="flex flex-wrap items-center gap-2">
                 <span className="min-w-[140px] font-mono text-xs">{u.branch}</span>
                 <span className="text-xs text-amber-700">({u.rows} แถว)</span>
