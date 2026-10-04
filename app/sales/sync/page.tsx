@@ -135,121 +135,67 @@ export default function SalesSyncPage() {
   const sheetId = (csvUrl.match(/\/spreadsheets\/d\/(?!e\/)([a-zA-Z0-9-_]+)/) || [])[1] || ''
 
   const appsScript = `// วางใน Apps Script ของชีท (ส่วนขยาย > Apps Script)
-// หรือสร้างเป็นโปรเจกต์แยกก็ได้ เพราะเปิดชีทด้วย ID ตรง ๆ
 // แล้วตั้ง Trigger แบบ Time-driven > Day timer ให้รันฟังก์ชัน syncSalesToPayroll
 const PAYROLL_URL = '${origin || 'https://foodmarket-payroll.pages.dev'}/api/sales/sync'
 const SYNC_KEY = '${syncKey || '<กดสร้างคีย์ในหน้าซิงก์ก่อน>'}'
 // ID ของสเปรดชีต (ส่วนที่อยู่หลัง /d/ ในลิงก์)
 const SHEET_ID = '${sheetId || '<วางลิงก์ชีทในช่องด้านบนก่อน แล้วคัดลอกสคริปต์ใหม่>'}'
-// ชื่อแท็บชีท เว้นว่างไว้ = ใช้แท็บแรก
+// ชื่อแท็บชีท — เว้นว่างไว้ = อ่านทุกแท็บ ขึ้นเดือนใหม่แล้วเพิ่มแท็บก็ไม่ต้องแก้สคริปต์
+// ถ้าจะระบุเอง ใส่หลายแท็บได้ คั่นด้วยคอมมา เช่น 'ก.ย. 69, ต.ค. 69'
 const SHEET_NAME = '${sheetTab}'
+
+const THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน',
+                     'กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม']
+// ชื่อย่อหลังตัดจุดออก เช่น "ต.ค." -> "ตค" แท็บรายเดือนมักตั้งชื่อแบบนี้
+const THAI_MONTHS_SHORT = ['มค','กพ','มีค','เมย','พค','มิย','กค','สค','กย','ตค','พย','ธค']
+
+function norm_(v) {
+  return String(v == null ? '' : v).replace(/[\\s_\\-.]/g, '').toLowerCase()
+}
+
+function toNum_(v) {
+  if (typeof v === 'number') return isFinite(v) ? v : null
+  const c = String(v == null ? '' : v).replace(/[,\\s฿]/g, '')
+  if (!c) return null
+  const n = Number(c)
+  return isFinite(n) ? n : null
+}
+
+function fmtDate_(d) {
+  return Utilities.formatDate(d, 'Asia/Bangkok', 'yyyy-MM-dd')
+}
 
 function syncSalesToPayroll() {
   // getActiveSpreadsheet() ใช้ได้เฉพาะสคริปต์ที่ผูกกับชีทและเปิดชีทอยู่
   // จึงเปิดด้วย ID เป็นหลัก ทำให้ตั้ง Trigger รันเองได้โดยไม่ต้องเปิดชีท
   const ss = SHEET_ID ? SpreadsheetApp.openById(SHEET_ID) : SpreadsheetApp.getActiveSpreadsheet()
   if (!ss) throw new Error('เปิดสเปรดชีตไม่ได้ — ตรวจ SHEET_ID และสิทธิ์เข้าถึงไฟล์')
-  const sheet = SHEET_NAME ? ss.getSheetByName(SHEET_NAME) : ss.getSheets()[0]
-  if (!sheet) throw new Error('ไม่พบแท็บชีทชื่อ ' + SHEET_NAME)
 
-  const values = sheet.getDataRange().getValues()
-  const rows = []
-  const norm = v => String(v == null ? '' : v).replace(/[\\s_\\-.]/g, '').toLowerCase()
-  const toNum = v => {
-    if (typeof v === 'number') return isFinite(v) ? v : null
-    const c = String(v == null ? '' : v).replace(/[,\\s฿]/g, '')
-    if (!c) return null
-    const n = Number(c)
-    return isFinite(n) ? n : null
-  }
-
-  // ── รูปแบบที่ 1: รายการ (วันที่ / สาขา / ยอดขาย อยู่คนละคอลัมน์) ──
-  const header = values[0].map(norm)
-  const iDate = header.findIndex(h => ['date','วันที่'].indexOf(h) >= 0)
-  const iBranch = header.findIndex(h => ['branch','สาขา','จุดขาย'].indexOf(h) >= 0)
-  const iAmount = header.findIndex(h => ['amount','ยอดขาย','ยอด'].indexOf(h) >= 0)
-
-  const fmt = d => Utilities.formatDate(d, 'Asia/Bangkok', 'yyyy-MM-dd')
-
-  if (iDate >= 0 && iBranch >= 0 && iAmount >= 0) {
-    for (let i = 1; i < values.length; i++) {
-      const r = values[i]
-      if (!r[iBranch] || r[iAmount] === '') continue
-      const d = r[iDate]
-      rows.push({
-        date: d instanceof Date ? fmt(d) : String(d),
-        branch: String(r[iBranch]),
-        amount: r[iAmount],
-      })
-    }
+  // เว้น SHEET_NAME ว่าง = อ่านทุกแท็บ เดือนใหม่ที่แยกแท็บจะเข้าเองโดยไม่ต้องแก้อะไร
+  const wanted = SHEET_NAME.split(',').map(function (s) { return s.trim() }).filter(function (s) { return s !== '' })
+  let sheets
+  if (wanted.length === 0) {
+    sheets = ss.getSheets()
   } else {
-    // ── รูปแบบที่ 2: ตารางไขว้ (แถว = วัน, คอลัมน์ = สาขา) ──
-    const THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน',
-                         'กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม']
-
-    // หาแถวหัวตาราง เช่น "วัน/สาขา | อโศก | พระราม 3 | ... | รวม"
-    let hi = -1
-    for (let i = 0; i < Math.min(values.length, 80); i++) {
-      const first = norm(values[i][0])
-      const filled = values[i].slice(1).filter(c => String(c || '').trim() !== '')
-      if (filled.length >= 2 && (first.indexOf('วัน') >= 0 || first.indexOf('date') >= 0)) { hi = i; break }
-    }
-    if (hi < 0) throw new Error('ไม่พบคอลัมน์ วันที่ / สาขา / ยอดขาย และไม่พบหัวตารางแบบไขว้')
-
-    // เดือน/ปี จากข้อความเหนือหัวตาราง เช่น "ยอดขายรายวันตามสาขา — กันยายน 2569"
-    let year = 0, month = 0
-    for (let i = hi; i >= 0 && i > hi - 6; i--) {
-      const text = values[i].join(' ')
-      const mi = THAI_MONTHS.findIndex(m => text.indexOf(m) >= 0)
-      const ym = text.match(/(\\d{4})/)
-      if (mi >= 0 && ym) {
-        year = Number(ym[1]); if (year > 2400) year -= 543
-        month = mi + 1
-        break
-      }
-    }
-    if (!year) { const t = new Date(); year = t.getFullYear(); month = t.getMonth() + 1 }
-
-    const cols = []
-    for (let c = 1; c < values[hi].length; c++) {
-      const name = String(values[hi][c] || '').trim()
-      if (!name) continue
-      if (norm(name).indexOf('รวม') === 0 || norm(name) === 'total') continue
-      cols.push({ c: c, name: name })
-    }
-    if (cols.length === 0) throw new Error('ไม่พบคอลัมน์สาขาในหัวตาราง')
-
-    for (let i = hi + 1; i < values.length; i++) {
-      const label = values[i][0]
-      const text = String(label == null ? '' : label).trim()
-      if (!text) continue
-      if (norm(text).indexOf('รวม') === 0) break
-
-      let date = null
-      if (label instanceof Date) {
-        date = fmt(label)
-      } else {
-        // "อ 1/9" — ตัดชื่อวันออก เหลือ วัน/เดือน แล้วเติมปีจากหัวตาราง
-        const m = text.match(/(\\d{1,2})\\s*[/-]\\s*(\\d{1,2})/)
-        if (m) {
-          const dd = Number(m[1]), mm = Number(m[2])
-          if (dd >= 1 && dd <= 31 && mm >= 1 && mm <= 12) {
-            date = year + '-' + ('0' + mm).slice(-2) + '-' + ('0' + dd).slice(-2)
-          }
-        }
-      }
-      if (!date) continue
-
-      for (let k = 0; k < cols.length; k++) {
-        const amount = toNum(values[i][cols[k].c])
-        // ว่างหรือศูนย์ = ยังไม่มียอดขาย ข้ามไปไม่ให้ทับของเดิม
-        if (amount === null || amount === 0) continue
-        rows.push({ date: date, branch: cols[k].name, amount: amount })
-      }
-    }
+    sheets = wanted.map(function (n) {
+      const sh = ss.getSheetByName(n)
+      if (!sh) throw new Error('ไม่พบแท็บชีทชื่อ ' + n)
+      return sh
+    })
   }
 
-  if (rows.length === 0) throw new Error('ไม่พบข้อมูลยอดขายในชีท')
+  let rows = []
+  const report = []
+  for (let s = 0; s < sheets.length; s++) {
+    const got = readSheetRows_(sheets[s])
+    report.push(sheets[s].getName() + ' = ' + got.length)
+    rows = rows.concat(got)
+  }
+  Logger.log('อ่านจากแท็บ: ' + report.join(' | '))
+
+  if (rows.length === 0) {
+    throw new Error('ไม่พบข้อมูลยอดขายในชีท (อ่านแล้ว ' + sheets.length + ' แท็บ: ' + report.join(' | ') + ')')
+  }
 
   const res = UrlFetchApp.fetch(PAYROLL_URL, {
     method: 'post',
@@ -262,6 +208,138 @@ function syncSalesToPayroll() {
   Logger.log(body)
   // โยน error เมื่อไม่สำเร็จ เพื่อให้ Trigger แจ้งเตือนทางอีเมล
   if (res.getResponseCode() >= 300) throw new Error('ซิงก์ไม่สำเร็จ: ' + body)
+}
+
+/** อ่านยอดขายจากแท็บเดียว คืน [] ถ้าอ่านไม่ได้ เพื่อให้แท็บอื่นยังซิงก์ต่อได้ */
+function readSheetRows_(sheet) {
+  const values = sheet.getDataRange().getValues()
+  if (values.length === 0) return []
+
+  // ── รูปแบบที่ 1: รายการ (วันที่ / สาขา / ยอดขาย อยู่คนละคอลัมน์) ──
+  const header = values[0].map(norm_)
+  const iDate = header.findIndex(function (h) { return ['date','วันที่'].indexOf(h) >= 0 })
+  const iBranch = header.findIndex(function (h) { return ['branch','สาขา','จุดขาย'].indexOf(h) >= 0 })
+  const iAmount = header.findIndex(function (h) { return ['amount','ยอดขาย','ยอด'].indexOf(h) >= 0 })
+
+  const rows = []
+  if (iDate >= 0 && iBranch >= 0 && iAmount >= 0) {
+    for (let i = 1; i < values.length; i++) {
+      const r = values[i]
+      if (!r[iBranch] || r[iAmount] === '') continue
+      const d = r[iDate]
+      rows.push({
+        date: d instanceof Date ? fmtDate_(d) : String(d),
+        branch: String(r[iBranch]),
+        amount: r[iAmount],
+      })
+    }
+    return rows
+  }
+
+  // ── รูปแบบที่ 2: ตารางไขว้ (แถว = วัน, คอลัมน์ = สาขา) ──
+  // ชีทจริงมักวางตารางของเดือนใหม่ต่อท้ายเดือนเก่าในแท็บเดียวกัน จึงอ่านทุกบล็อก
+  // ถ้าในตารางไม่ได้เขียนเดือนไว้ ใช้เดือนจากชื่อแท็บ เช่นแท็บ "ต.ค. 69"
+  let lastMY = monthYearOf_(sheet.getName())
+  for (let hi = 0; hi < values.length; hi++) {
+    if (!isMatrixHeader_(values[hi])) continue
+
+    const my = monthYearAbove_(values, hi) || lastMY
+    if (my) lastMY = my
+
+    const cols = []
+    for (let c = 1; c < values[hi].length; c++) {
+      const name = String(values[hi][c] || '').trim()
+      if (!name) continue
+      if (norm_(name).indexOf('รวม') === 0 || norm_(name) === 'total') continue
+      cols.push({ c: c, name: name })
+    }
+    if (cols.length === 0) continue
+
+    let r = hi + 1
+    for (; r < values.length; r++) {
+      // ตารางของเดือนถัดไป ปล่อยให้วงนอกเริ่มบล็อกใหม่
+      if (isMatrixHeader_(values[r])) break
+      const label = values[r][0]
+      const text = String(label == null ? '' : label).trim()
+      if (!text) continue
+      // แถวสรุปท้ายตาราง จบบล็อกนี้
+      if (norm_(text).indexOf('รวม') === 0) break
+
+      let date = null
+      if (label instanceof Date) {
+        date = fmtDate_(label)
+      } else {
+        // "อ 1/9" — ตัดชื่อวันออก เหลือ วัน/เดือน แล้วเติมปีจากหัวตาราง
+        const m = text.match(/(\\d{1,2})\\s*[/-]\\s*(\\d{1,2})/)
+        if (m && my) {
+          const dd = Number(m[1]), mm = Number(m[2])
+          if (dd >= 1 && dd <= 31 && mm >= 1 && mm <= 12) {
+            date = my.year + '-' + ('0' + mm).slice(-2) + '-' + ('0' + dd).slice(-2)
+          }
+        }
+      }
+      if (!date) continue
+
+      for (let k = 0; k < cols.length; k++) {
+        const amount = toNum_(values[r][cols[k].c])
+        // ว่างหรือศูนย์ = ยังไม่มียอดขาย ข้ามไปไม่ให้ทับของเดิม
+        if (amount === null || amount === 0) continue
+        rows.push({ date: date, branch: cols[k].name, amount: amount })
+      }
+    }
+    hi = r - 1
+  }
+
+  return rows
+}
+
+/** หัวตารางไขว้: ช่องแรกพูดถึง "วัน" และมีคอลัมน์อื่นอย่างน้อย 2 ช่อง */
+function isMatrixHeader_(row) {
+  const first = norm_(row[0])
+  let filled = 0
+  for (let c = 1; c < row.length; c++) if (String(row[c] || '').trim() !== '') filled++
+  return filled >= 2 && (first.indexOf('วัน') >= 0 || first.indexOf('date') >= 0)
+}
+
+/** เดือน/ปี จากข้อความเหนือหัวตาราง เช่น "ยอดขายรายวันตามสาขา — ตุลาคม 2569" */
+function monthYearAbove_(values, hi) {
+  for (let i = hi; i >= 0 && i > hi - 6; i--) {
+    const my = monthYearOf_(values[i].join(' '))
+    if (my) return my
+  }
+  return null
+}
+
+/**
+ * หาเดือน/ปีจากข้อความ รองรับชื่อย่อและปีสองหลัก เช่น "ต.ค. 69"
+ * ไม่เดาปีจากวันนี้ เพราะต้องได้ผลเท่าเดิมทุกครั้งที่ซิงก์
+ */
+function monthYearOf_(text) {
+  let mi = -1
+  for (let m = 0; m < THAI_MONTHS.length; m++) {
+    if (text.indexOf(THAI_MONTHS[m]) >= 0) { mi = m; break }
+  }
+  if (mi < 0) {
+    const key = text.replace(/[\\s.]/g, '')
+    for (let m = 0; m < THAI_MONTHS_SHORT.length; m++) {
+      if (key.indexOf(THAI_MONTHS_SHORT[m]) >= 0) { mi = m; break }
+    }
+  }
+  if (mi < 0) return null
+
+  // ปีสี่หลักมาก่อน ถ้าไม่มีจึงรับปีสองหลัก ("69" = พ.ศ. 2569)
+  const four = text.match(/(\\d{4})/)
+  let y
+  if (four) {
+    y = Number(four[1])
+  } else {
+    const two = text.match(/(?:^|[^\\d])(\\d{2})(?:[^\\d]|$)/)
+    if (!two) return null
+    y = 2500 + Number(two[1])
+  }
+  if (y > 2400) y -= 543
+  if (y < 2000 || y > 2100) return null
+  return { year: y, month: mi + 1 }
 }`
 
   return (
@@ -287,10 +365,13 @@ function syncSalesToPayroll() {
         <p className="text-xs text-gray-500">
           ในชีทเลือก ไฟล์ &gt; แชร์ &gt; เผยแพร่ทางเว็บ &gt; เลือกชีทที่ต้องการ และเลือกรูปแบบ
           <strong> CSV</strong> แล้วนำลิงก์มาวางที่นี่ (วางลิงก์ชีทปกติก็ได้ ระบบจะแปลงให้)
+          <br />
+          ลิงก์หนึ่งอันได้แท็บเดียว ถ้าแยกแท็บตามเดือน ให้วางหลายลิงก์คั่นด้วยการขึ้นบรรทัดใหม่
+          หรือใช้วิธีที่ 2 ซึ่งอ่านทุกแท็บให้เอง
         </p>
         <div className="flex flex-wrap gap-2">
-          <input
-            type="url"
+          <textarea
+            rows={2}
             className="flex-1 min-w-[280px] border border-gray-300 rounded-lg px-3 py-2 text-sm"
             placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv"
             value={csvUrl}
@@ -320,6 +401,8 @@ function syncSalesToPayroll() {
           สร้างคีย์แล้วนำสคริปต์ด้านล่างไปวางใน Apps Script ของชีท
           จากนั้นตั้ง Trigger แบบ Time-driven &gt; Day timer เลือกช่วงเวลาที่ต้องการ
           ข้อมูลจะส่งเข้าระบบเองทุกวันโดยไม่ต้องเผยแพร่ชีทให้คนนอกเห็น
+          <br />
+          เว้นชื่อแท็บว่างไว้ = อ่านทุกแท็บ ขึ้นเดือนใหม่แล้วเพิ่มแท็บก็ไม่ต้องแก้สคริปต์
         </p>
         <div className="flex flex-wrap gap-2 items-center">
           <input
@@ -331,7 +414,7 @@ function syncSalesToPayroll() {
           <input
             type="text"
             className="w-44 border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            placeholder="ชื่อแท็บชีท (ไม่ใส่ = แท็บแรก)"
+            placeholder="ชื่อแท็บชีท (ไม่ใส่ = ทุกแท็บ)"
             value={sheetTab}
             onChange={e => setSheetTab(e.target.value)}
           />

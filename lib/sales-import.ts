@@ -118,14 +118,38 @@ const THAI_MONTHS = [
   'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
 ]
 
-/** หาเดือน/ปีจากข้อความหัวตาราง เช่น "ยอดขายรายวันตามสาขา — กันยายน 2569" */
+/** ชื่อเดือนย่อหลังตัดจุดออก เช่น "ต.ค." -> "ตค" ชีทรายเดือนมักตั้งหัวแบบนี้ */
+const THAI_MONTHS_SHORT = [
+  'มค', 'กพ', 'มีค', 'เมย', 'พค', 'มิย', 'กค', 'สค', 'กย', 'ตค', 'พย', 'ธค',
+]
+
+/**
+ * หาเดือน/ปีจากข้อความหัวตาราง เช่น "ยอดขายรายวันตามสาขา — กันยายน 2569"
+ * รองรับชื่อย่อและปีสองหลักด้วย เช่น "ต.ค. 69"
+ *
+ * ไม่เดาปีจากวันนี้ เพราะต้องได้ผลเท่าเดิมทุกครั้งที่ซิงก์ ไม่งั้นชีทเดิมอาจเข้า
+ * ระบบเป็นวันที่คนละปี กลายเป็นยอดซ้ำ
+ */
 export function findMonthYear(text: string): { year: number; month: number } | null {
-  const idx = THAI_MONTHS.findIndex(m => text.includes(m))
+  let idx = THAI_MONTHS.findIndex(m => text.includes(m))
+  if (idx < 0) {
+    const key = text.replace(/[\s.]/g, '')
+    idx = THAI_MONTHS_SHORT.findIndex(m => key.includes(m))
+  }
   if (idx < 0) return null
-  const ym = text.match(/(\d{4})/)
-  if (!ym) return null
-  let year = Number(ym[1])
+
+  // ปีสี่หลักมาก่อน ถ้าไม่มีจึงรับปีสองหลัก ("69" = พ.ศ. 2569)
+  const four = text.match(/(\d{4})/)
+  let year: number
+  if (four) {
+    year = Number(four[1])
+  } else {
+    const two = text.match(/(?:^|[^\d])(\d{2})(?:[^\d]|$)/)
+    if (!two) return null
+    year = 2500 + Number(two[1])
+  }
   if (year > 2400) year -= 543
+  if (year < 2000 || year > 2100) return null
   return { year, month: idx + 1 }
 }
 
@@ -161,65 +185,75 @@ function isTotalColumn(name: string): boolean {
   return !k || k === 'รวม' || k === 'total' || k.startsWith('รวม')
 }
 
+/** หัวตารางไขว้: ช่องแรกพูดถึง "วัน" และมีคอลัมน์อื่นอย่างน้อย 2 ช่อง */
+function isMatrixHeader(cells: string[]): boolean {
+  const first = normalizeKey(cells[0] || '')
+  const filled = cells.slice(1).filter(c => c.trim() !== '')
+  return filled.length >= 2 && (first.includes('วัน') || first.includes('date'))
+}
+
 /**
  * ตารางไขว้: แถวคือวัน คอลัมน์คือสาขา เช่น
  *   วัน/สาขา | อโศก | พระราม 3 | แฟชั่น 3 | ... | รวม
  *   อ 1/9    | 18,189 | 12,226 | 5,215  | ... | 47,490
+ *
+ * ชีทจริงมักวางตารางของเดือนใหม่ต่อท้ายเดือนเก่าในแท็บเดียวกัน จึงอ่านทุกบล็อก
+ * ไม่ใช่หยุดที่แถว "รวม" ของบล็อกแรก
  */
 function parseMatrixCsv(lines: string[]): ParseResult | null {
   const result: ParseResult = { rows: [], skipped: [] }
+  const all = lines.map(splitCsvLine)
+  let blocks = 0
+  // เดือน/ปีที่เจอล่าสุด ใช้กับบล็อกที่ไม่ได้เขียนชื่อเดือนซ้ำไว้
+  let lastMonthYear: { year: number; month: number } | null = null
 
-  // หาแถวหัวตาราง: ช่องแรกพูดถึง "วัน" และมีคอลัมน์อื่นอย่างน้อย 2 ช่อง
-  let headerIdx = -1
-  let cols: string[] = []
-  for (let i = 0; i < Math.min(lines.length, 80); i++) {
-    const cells = splitCsvLine(lines[i])
-    const first = normalizeKey(cells[0] || '')
-    const filled = cells.slice(1).filter(c => c.trim() !== '')
-    if (filled.length >= 2 && (first.includes('วัน') || first.includes('date'))) {
-      headerIdx = i
-      cols = cells
-      break
+  for (let i = 0; i < all.length; i++) {
+    if (!isMatrixHeader(all[i])) continue
+    blocks++
+
+    // ชื่อเดือนมักอยู่เหนือหัวตารางไม่เกิน 5 บรรทัด
+    let monthYear: { year: number; month: number } | null = null
+    for (let j = i; j >= 0 && j > i - 6; j--) {
+      monthYear = findMonthYear(lines[j])
+      if (monthYear) break
     }
-  }
-  if (headerIdx < 0) return null
+    if (monthYear) lastMonthYear = monthYear
+    const fallback = monthYear || lastMonthYear
 
-  // เดือน/ปี จากข้อความเหนือหัวตาราง
-  let monthYear: { year: number; month: number } | null = null
-  for (let i = headerIdx; i >= 0 && i > headerIdx - 6; i--) {
-    monthYear = findMonthYear(lines[i])
-    if (monthYear) break
-  }
-
-  const branchCols: Array<{ index: number; name: string }> = []
-  for (let c = 1; c < cols.length; c++) {
-    const name = (cols[c] || '').trim()
-    if (!name || isTotalColumn(name)) continue
-    branchCols.push({ index: c, name })
-  }
-  if (branchCols.length === 0) return null
-
-  for (let i = headerIdx + 1; i < lines.length; i++) {
-    const cells = splitCsvLine(lines[i])
-    const label = (cells[0] || '').trim()
-    if (!label) continue
-    // แถวสรุปท้ายตาราง จบการอ่าน
-    if (normalizeKey(label).startsWith('รวม')) break
-
-    const date = parseShortDate(label, monthYear)
-    if (!date) {
-      result.skipped.push({ line: i + 1, reason: 'อ่านวันที่ไม่ได้', raw: lines[i].slice(0, 120) })
-      continue
+    const branchCols: Array<{ index: number; name: string }> = []
+    for (let c = 1; c < all[i].length; c++) {
+      const name = (all[i][c] || '').trim()
+      if (!name || isTotalColumn(name)) continue
+      branchCols.push({ index: c, name })
     }
+    if (branchCols.length === 0) continue
 
-    for (const col of branchCols) {
-      const amount = normalizeAmount(cells[col.index] ?? '')
-      // ช่องว่างหรือศูนย์ = ยังไม่มียอดขายวันนั้น ข้ามไปไม่บันทึกทับของเดิม
-      if (amount === null || amount === 0) continue
-      result.rows.push({ date, branch: col.name, amount, notes: null })
+    let r = i + 1
+    for (; r < all.length; r++) {
+      // ตารางของเดือนถัดไป ปล่อยให้วงนอกเริ่มบล็อกใหม่
+      if (isMatrixHeader(all[r])) break
+      const label = (all[r][0] || '').trim()
+      if (!label) continue
+      // แถวสรุปท้ายตาราง จบบล็อกนี้
+      if (normalizeKey(label).startsWith('รวม')) break
+
+      const date = parseShortDate(label, fallback)
+      if (!date) {
+        result.skipped.push({ line: r + 1, reason: 'อ่านวันที่ไม่ได้', raw: lines[r].slice(0, 120) })
+        continue
+      }
+
+      for (const col of branchCols) {
+        const amount = normalizeAmount(all[r][col.index] ?? '')
+        // ช่องว่างหรือศูนย์ = ยังไม่มียอดขายวันนั้น ข้ามไปไม่บันทึกทับของเดิม
+        if (amount === null || amount === 0) continue
+        result.rows.push({ date, branch: col.name, amount, notes: null })
+      }
     }
+    i = r - 1
   }
 
+  if (blocks === 0) return null
   return result
 }
 
@@ -292,8 +326,7 @@ export function matchBranch(
   return contains.length === 1 ? contains[0] : null
 }
 
-/** แปลง Google Sheet URL ปกติให้เป็นลิงก์ export CSV ถ้าเป็นไปได้ */
-export function toCsvUrl(url: string): string {
+/** แปลง Google Sheet URL ปกติให้เป็นลิงก์ export CSV ถ้าเป็นไปได้ */export function toCsvUrl(url: string): string {
   const trimmed = (url || '').trim()
   if (!trimmed) return ''
   // ลิงก์ที่เผยแพร่แล้ว (pub?output=csv) ใช้ได้เลย
@@ -304,4 +337,15 @@ export function toCsvUrl(url: string): string {
   const gidMatch = trimmed.match(/[#&?]gid=(\d+)/)
   const gid = gidMatch ? gidMatch[1] : '0'
   return `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${gid}`
+}
+
+/**
+ * ลิงก์ CSV หนึ่งอันได้แท็บเดียว ชีทที่แยกแท็บตามเดือนจึงต้องตั้งได้หลายลิงก์
+ * รับได้ทั้งขึ้นบรรทัดใหม่ คอมมา และช่องว่าง
+ */
+export function splitUrls(input: string): string[] {
+  return (input || '')
+    .split(/[\s,]+/)
+    .map(s => s.trim())
+    .filter(s => s !== '')
 }

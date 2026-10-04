@@ -3,7 +3,7 @@ import { isAdminAuthorized } from '@/lib/admin-auth'
 import { generateId, getBangkokDateTimeString } from '@/lib/utils'
 import { ensureSalesSourceColumn } from '@/lib/db-tables'
 import {
-  parseSalesCsv, matchBranch, toCsvUrl,
+  parseSalesCsv, matchBranch, toCsvUrl, splitUrls,
   normalizeDate, normalizeAmount,
   type ParsedSalesRow,
 } from '@/lib/sales-import'
@@ -261,7 +261,9 @@ export async function POST(request: NextRequest) {
     if (body.settings) {
       if (auth.via !== 'session') return Response.json({ error: 'Forbidden' }, { status: 403 })
       if (body.settings.csv_url !== undefined) {
-        await setSetting(db, URL_KEY, toCsvUrl(body.settings.csv_url))
+        // รับหลายลิงก์ได้ ลิงก์หนึ่งอันได้แท็บเดียว ชีทที่แยกแท็บตามเดือนจึงต้องใส่หลายอัน
+        const urls = splitUrls(body.settings.csv_url).map(toCsvUrl).filter(u => u !== '')
+        await setSetting(db, URL_KEY, urls.join('\n'))
       }
       if (body.settings.sync_key !== undefined) {
         await setSetting(db, SYNC_KEY, body.settings.sync_key.trim())
@@ -287,21 +289,40 @@ export async function POST(request: NextRequest) {
         rows.push({ date, branch, amount, notes: r.notes ?? null })
       })
     } else {
-      let csv = body.csv || ''
-      if (!csv) {
-        const url = await getSetting(db, URL_KEY)
-        if (!url) return Response.json({ error: 'ยังไม่ได้ตั้งลิงก์ Google Sheet (CSV)' }, { status: 400 })
-        const res = await fetch(url, { redirect: 'follow' })
-        if (!res.ok) {
+      const csv = body.csv || ''
+      if (csv) {
+        const parsed = parseSalesCsv(csv)
+        rows = parsed.rows
+        skipped = parsed.skipped
+      } else {
+        const urls = splitUrls(await getSetting(db, URL_KEY))
+        if (urls.length === 0) return Response.json({ error: 'ยังไม่ได้ตั้งลิงก์ Google Sheet (CSV)' }, { status: 400 })
+        // ดึงทุกลิงก์แล้วแปลงรวมกัน ลิงก์ที่ดึงไม่ได้รายงานไว้แต่ไม่ล้มทั้งรอบ
+        const parts: string[] = []
+        const failed: string[] = []
+        for (const url of urls) {
+          try {
+            const res = await fetch(url, { redirect: 'follow' })
+            if (!res.ok) { failed.push(`HTTP ${res.status}`); continue }
+            parts.push(await res.text())
+          } catch (e: any) {
+            failed.push(String(e?.message || e).slice(0, 80))
+          }
+        }
+        if (parts.length === 0) {
           return Response.json({
-            error: `ดึงข้อมูลจากลิงก์ไม่สำเร็จ (HTTP ${res.status}) — ตรวจว่าเผยแพร่ชีทเป็น CSV แล้วหรือยัง`,
+            error: `ดึงข้อมูลจากลิงก์ไม่สำเร็จ (${failed.join(', ')}) — ตรวจว่าเผยแพร่ชีทเป็น CSV แล้วหรือยัง`,
           }, { status: 502 })
         }
-        csv = await res.text()
+        for (const part of parts) {
+          const parsed = parseSalesCsv(part)
+          rows = rows.concat(parsed.rows)
+          skipped = skipped.concat(parsed.skipped)
+        }
+        if (failed.length > 0) {
+          skipped.push({ line: 0, reason: `ดึงบางลิงก์ไม่สำเร็จ: ${failed.join(', ')}`, raw: '' })
+        }
       }
-      const parsed = parseSalesCsv(csv)
-      rows = parsed.rows
-      skipped = parsed.skipped
     }
 
     const outcome = await importRows(db, rows, skipped)
