@@ -186,15 +186,20 @@ function syncSalesToPayroll() {
 
   let rows = []
   const report = []
+  const samples = []
   for (let s = 0; s < sheets.length; s++) {
     const got = readSheetRows_(sheets[s])
     report.push(sheets[s].getName() + ' = ' + got.length)
+    if (got.length === 0) samples.push(sheets[s].getName() + ': ' + peek_(sheets[s]))
     rows = rows.concat(got)
   }
   Logger.log('อ่านจากแท็บ: ' + report.join(' | '))
 
   if (rows.length === 0) {
-    throw new Error('ไม่พบข้อมูลยอดขายในชีท (อ่านแล้ว ' + sheets.length + ' แท็บ: ' + report.join(' | ') + ')')
+    // แนบหัวตารางที่เห็นในแต่ละแท็บ จะได้รู้ว่าชีทวางข้อมูลแบบไหนโดยไม่ต้องเดา
+    Logger.log('หัวตารางที่เห็น:\\n' + samples.join('\\n'))
+    throw new Error('ไม่พบข้อมูลยอดขายในชีท (อ่านแล้ว ' + sheets.length + ' แท็บ: ' + report.join(' | ') +
+                    ') — หัวตารางที่เห็น: ' + samples.join(' // '))
   }
 
   const res = UrlFetchApp.fetch(PAYROLL_URL, {
@@ -241,7 +246,7 @@ function readSheetRows_(sheet) {
   // ถ้าในตารางไม่ได้เขียนเดือนไว้ ใช้เดือนจากชื่อแท็บ เช่นแท็บ "ต.ค. 69"
   let lastMY = monthYearOf_(sheet.getName())
   for (let hi = 0; hi < values.length; hi++) {
-    if (!isMatrixHeader_(values[hi])) continue
+    if (!isMatrixHeader_(values, hi)) continue
 
     const my = monthYearAbove_(values, hi) || lastMY
     if (my) lastMY = my
@@ -258,7 +263,7 @@ function readSheetRows_(sheet) {
     let r = hi + 1
     for (; r < values.length; r++) {
       // ตารางของเดือนถัดไป ปล่อยให้วงนอกเริ่มบล็อกใหม่
-      if (isMatrixHeader_(values[r])) break
+      if (isMatrixHeader_(values, r)) break
       const label = values[r][0]
       const text = String(label == null ? '' : label).trim()
       if (!text) continue
@@ -293,12 +298,36 @@ function readSheetRows_(sheet) {
   return rows
 }
 
-/** หัวตารางไขว้: ช่องแรกพูดถึง "วัน" และมีคอลัมน์อื่นอย่างน้อย 2 ช่อง */
-function isMatrixHeader_(row) {
-  const first = norm_(row[0])
+/** หัวตารางไขว้: มีคอลัมน์สาขาอย่างน้อย 2 ช่อง และช่องซ้ายบนพูดถึง "วัน"
+ *  บางชีทปล่อยช่องซ้ายบนว่างไว้ จึงรับด้วยถ้าแถวถัดไปขึ้นต้นเป็นวันที่ */
+function isMatrixHeader_(values, i) {
+  const row = values[i]
+  if (!row) return false
   let filled = 0
   for (let c = 1; c < row.length; c++) if (String(row[c] || '').trim() !== '') filled++
-  return filled >= 2 && (first.indexOf('วัน') >= 0 || first.indexOf('date') >= 0)
+  if (filled < 2) return false
+  const first = norm_(row[0])
+  if (first.indexOf('วัน') >= 0 || first.indexOf('date') >= 0) return true
+  if (first === '') return isDayLabel_(values[i + 1] ? values[i + 1][0] : null)
+  return false
+}
+
+/** ป้ายแถวที่เป็นวัน เช่น "อ 1/9", "1/10" หรือช่องที่เป็นวันที่จริง */
+function isDayLabel_(cell) {
+  if (cell instanceof Date) return true
+  const s = String(cell == null ? '' : cell).trim()
+  if (!s) return false
+  return /(\\d{1,2})\\s*[/-]\\s*(\\d{1,2})/.test(s)
+}
+
+/** 4 แถวแรกของแท็บแบบย่อ ไว้บอกว่าชีทวางข้อมูลแบบไหนเมื่ออ่านไม่ออก */
+function peek_(sheet) {
+  const v = sheet.getDataRange().getValues().slice(0, 4)
+  return v.map(function (row) {
+    return row.slice(0, 5).map(function (c) {
+      return String(c == null ? '' : c).trim().slice(0, 18)
+    }).join(' | ')
+  }).join(' ⏎ ')
 }
 
 /** เดือน/ปี จากข้อความเหนือหัวตาราง เช่น "ยอดขายรายวันตามสาขา — ตุลาคม 2569" */

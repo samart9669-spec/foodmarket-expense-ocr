@@ -185,11 +185,27 @@ function isTotalColumn(name: string): boolean {
   return !k || k === 'รวม' || k === 'total' || k.startsWith('รวม')
 }
 
-/** หัวตารางไขว้: ช่องแรกพูดถึง "วัน" และมีคอลัมน์อื่นอย่างน้อย 2 ช่อง */
-function isMatrixHeader(cells: string[]): boolean {
-  const first = normalizeKey(cells[0] || '')
+/** ป้ายแถวที่เป็นวัน เช่น "อ 1/9", "1/10", "2026-10-01" */
+function looksLikeDayLabel(cell: string | undefined): boolean {
+  const s = (cell || '').trim()
+  if (!s) return false
+  if (normalizeDate(s)) return true
+  return /(\d{1,2})\s*[/-]\s*(\d{1,2})/.test(s)
+}
+
+/**
+ * หัวตารางไขว้: มีคอลัมน์สาขาอย่างน้อย 2 ช่อง และช่องซ้ายบนพูดถึง "วัน"
+ * บางชีทปล่อยช่องซ้ายบนว่างไว้เฉย ๆ จึงรับด้วยถ้าแถวถัดไปขึ้นต้นเป็นวันที่
+ */
+function isMatrixHeader(all: string[][], i: number): boolean {
+  const cells = all[i]
+  if (!cells) return false
   const filled = cells.slice(1).filter(c => c.trim() !== '')
-  return filled.length >= 2 && (first.includes('วัน') || first.includes('date'))
+  if (filled.length < 2) return false
+  const first = normalizeKey(cells[0] || '')
+  if (first.includes('วัน') || first.includes('date')) return true
+  if (first === '') return looksLikeDayLabel(all[i + 1]?.[0])
+  return false
 }
 
 /**
@@ -208,7 +224,7 @@ function parseMatrixCsv(lines: string[]): ParseResult | null {
   let lastMonthYear: { year: number; month: number } | null = null
 
   for (let i = 0; i < all.length; i++) {
-    if (!isMatrixHeader(all[i])) continue
+    if (!isMatrixHeader(all, i)) continue
     blocks++
 
     // ชื่อเดือนมักอยู่เหนือหัวตารางไม่เกิน 5 บรรทัด
@@ -231,7 +247,7 @@ function parseMatrixCsv(lines: string[]): ParseResult | null {
     let r = i + 1
     for (; r < all.length; r++) {
       // ตารางของเดือนถัดไป ปล่อยให้วงนอกเริ่มบล็อกใหม่
-      if (isMatrixHeader(all[r])) break
+      if (isMatrixHeader(all, r)) break
       const label = (all[r][0] || '').trim()
       if (!label) continue
       // แถวสรุปท้ายตาราง จบบล็อกนี้
@@ -279,10 +295,11 @@ export function parseSalesCsv(csv: string): ParseResult {
     const matrix = parseMatrixCsv(lines)
     if (matrix && matrix.rows.length > 0) return matrix
 
+    // แนบหัวไฟล์ไว้ด้วย จะได้เห็นว่าชีทวางข้อมูลแบบไหนโดยไม่ต้องเปิดดูเอง
     result.skipped.push({
       line: 1,
       reason: 'ไม่พบหัวคอลัมน์ที่ต้องมี (วันที่ / สาขา / ยอดขาย) และอ่านแบบตารางไขว้ไม่สำเร็จ',
-      raw: lines[0].slice(0, 120),
+      raw: lines.slice(0, 4).map(l => l.slice(0, 80)).join(' ⏎ ').slice(0, 300),
     })
     return result
   }
