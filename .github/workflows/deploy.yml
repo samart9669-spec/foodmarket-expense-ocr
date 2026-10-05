@@ -17,6 +17,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ตรวจโทเคนก่อนลงมือ ถ้าหมดอายุจะได้รู้ทันทีตั้งแต่ 10 วินาทีแรก
+      # ไม่ใช่ build เสร็จแล้วค่อยล้มตอนจะ deploy แล้วเงียบไปหลายวัน
+      - name: Check Cloudflare API token
+        run: |
+          code=$(curl -s -o /tmp/verify.json -w '%{http_code}' \
+            "https://api.cloudflare.com/client/v4/user/tokens/verify" \
+            -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}")
+          if [ "$code" != "200" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN ใช้ไม่ได้ (HTTP $code) — โทเคนหมดอายุ ถูกเพิกถอน หรือสิทธิ์ไม่พอ ให้สร้างโทเคนใหม่ใน Cloudflare (ต้องมีสิทธิ์ Cloudflare Pages:Edit และ D1:Edit) แล้วอัปเดต GitHub secret ชื่อ CLOUDFLARE_API_TOKEN"
+            cat /tmp/verify.json
+            exit 1
+          fi
+          echo "โทเคนใช้งานได้"
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
