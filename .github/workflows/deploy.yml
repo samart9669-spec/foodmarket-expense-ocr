@@ -20,15 +20,29 @@ jobs:
       # ตรวจโทเคนก่อนลงมือ ถ้าหมดอายุจะได้รู้ทันทีตั้งแต่ 10 วินาทีแรก
       # ไม่ใช่ build เสร็จแล้วค่อยล้มตอนจะ deploy แล้วเงียบไปหลายวัน
       - name: Check Cloudflare API token
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          code=$(curl -s -o /tmp/verify.json -w '%{http_code}' \
-            "https://api.cloudflare.com/client/v4/user/tokens/verify" \
-            -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}")
+          # พิมพ์แค่ความยาว ไม่พิมพ์ค่าโทเคน — ความยาวบอกได้ว่าใส่อะไรมา
+          #   40 = รูปแบบโทเคนที่ถูก   32 = คัดลอก Token ID มาผิด   0 = secret ว่าง
+          trimmed=$(printf '%s' "$CF_TOKEN" | tr -d '[:space:]')
+          echo "ความยาวค่าที่อ่านได้ ${#CF_TOKEN} ตัว (ตัดช่องว่างแล้ว ${#trimmed} ตัว)"
+
+          verify() {
+            curl -s -o "$2" -w '%{http_code}' \
+              "https://api.cloudflare.com/client/v4/user/tokens/verify" \
+              -H "Authorization: Bearer $1"
+          }
+          # ใช้ค่าที่ตัดช่องว่างแล้วเสมอ ช่องว่างที่ติดมาตอนวางเป็นสาเหตุที่เจอบ่อย
+          code=$(verify "$trimmed" /tmp/verify.json)
+
           if [ "$code" != "200" ]; then
-            echo "::error::CLOUDFLARE_API_TOKEN ใช้ไม่ได้ (HTTP $code) — โทเคนหมดอายุ ถูกเพิกถอน หรือสิทธิ์ไม่พอ ให้สร้างโทเคนใหม่ใน Cloudflare (ต้องมีสิทธิ์ Cloudflare Pages:Edit และ D1:Edit) แล้วอัปเดต GitHub secret ชื่อ CLOUDFLARE_API_TOKEN"
+            echo "::error::CLOUDFLARE_API_TOKEN ใช้ไม่ได้ (HTTP $code) — ดูความยาวด้านบน: 32 ตัวแปลว่าคัดลอก Token ID มาแทนตัวโทเคน, 0 ตัวแปลว่า secret ว่างหรือใส่ผิดที่ (ต้องเป็น Settings > Secrets and variables > Actions > Repository secrets), 40 ตัวแปลว่ารูปแบบถูกแต่โทเคนถูกเพิกถอนหรือหมดอายุ"
             cat /tmp/verify.json
             exit 1
           fi
+          # ส่งต่อให้ขั้นตอนถัดไปใช้ ไม่ต้องอ่าน secret ดิบซ้ำอีก
+          echo "CLOUDFLARE_API_TOKEN=$trimmed" >> "$GITHUB_ENV"
           echo "โทเคนใช้งานได้"
 
       - name: Setup Node.js
@@ -60,19 +74,15 @@ jobs:
 
       - name: Create Pages project (idempotent)
         run: npx wrangler pages project create $CF_PROJECT --production-branch=main || true
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
       - name: Bind D1 database to Pages project
         run: |
           curl -fsS -X PATCH \
             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${CF_PROJECT}" \
-            -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             -H "Content-Type: application/json" \
             --data "{\"deployment_configs\":{\"production\":{\"d1_databases\":{\"DB\":{\"id\":\"${D1_DB_ID}\"}},\"ai_bindings\":{\"AI\":{}},\"compatibility_flags\":[\"nodejs_compat\"],\"compatibility_date\":\"2024-09-23\"},\"preview\":{\"d1_databases\":{\"DB\":{\"id\":\"${D1_DB_ID}\"}},\"ai_bindings\":{\"AI\":{}},\"compatibility_flags\":[\"nodejs_compat\"],\"compatibility_date\":\"2024-09-23\"}}}" | tee /tmp/bind.json
           jq -e '.success == true' /tmp/bind.json
 
       - name: Deploy to Cloudflare Pages
         run: npx wrangler pages deploy .vercel/output/static --project-name=$CF_PROJECT --branch=main --commit-message="Deploy $(date +%Y%m%d%H%M%S)"
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
