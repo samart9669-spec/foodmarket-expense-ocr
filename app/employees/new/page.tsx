@@ -5,30 +5,15 @@ export const runtime = 'edge'
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { getAdminRole, getAuthHeaders } from '@/lib/utils'
-import { extractFaceDescriptor } from '@/lib/face'
+import { analyzeFacePhoto } from '@/lib/face'
+import FaceCapture from '@/components/FaceCapture'
 
 interface SalesPoint { id: string; name: string }
-
-/** Compress image via canvas → JPEG base64, max 400px wide */
-async function compressImage(src: string, maxPx = 400): Promise<string> {
-  const img = new Image()
-  img.src = src
-  await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = rej })
-  const ratio = Math.min(1, maxPx / Math.max(img.naturalWidth, img.naturalHeight))
-  const w = Math.round(img.naturalWidth * ratio)
-  const h = Math.round(img.naturalHeight * ratio)
-  const c = document.createElement('canvas')
-  c.width = w; c.height = h
-  c.getContext('2d')!.drawImage(img, 0, 0, w, h)
-  return c.toDataURL('image/jpeg', 0.75)
-}
 
 type PhotoState = 'idle' | 'camera' | 'previewing' | 'analyzing' | 'done'
 
 export default function NewEmployeePage() {
   const router = useRouter()
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const streamRef = useRef<MediaStream | null>(null)
   const role = typeof window !== 'undefined' ? getAdminRole() : ''
 
   const [form, setForm] = useState({
@@ -47,6 +32,7 @@ export default function NewEmployeePage() {
   const [photoState, setPhotoState] = useState<PhotoState>('idle')
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null)
   const [faceDescriptor, setFaceDescriptor] = useState<string | null>(null)
+  const [photoReason, setPhotoReason] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
   const [qrCode, setQrCode] = useState('')
 
@@ -57,38 +43,14 @@ export default function NewEmployeePage() {
   }, [])
 
   // ── Camera ────────────────────────────────────────────────────────
-  const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } }
-      })
-      streamRef.current = stream
-      setPhotoState('camera')
-    } catch {
-      setError('ไม่สามารถเปิดกล้องได้ กรุณาอนุญาตการใช้กล้อง')
-    }
-  }
+  // กล้องมีกรอบให้จัดหน้า และถ่ายได้เมื่อใบหน้าพอดีกรอบเท่านั้น (FaceCapture)
+  const startCamera = () => { setError(''); setPhotoReason(''); setPhotoState('camera') }
 
-  useEffect(() => {
-    if (photoState !== 'camera' || !videoRef.current || !streamRef.current) return
-    videoRef.current.srcObject = streamRef.current
-    videoRef.current.play().catch(() => {})
-  }, [photoState])
-
-  const stopCamera = () => {
-    streamRef.current?.getTracks().forEach(t => t.stop())
-    streamRef.current = null
-  }
-
-  const takePhoto = () => {
-    const video = videoRef.current
-    if (!video) return
-    const c = document.createElement('canvas')
-    c.width = video.videoWidth || 640
-    c.height = video.videoHeight || 480
-    c.getContext('2d')!.drawImage(video, 0, 0)
-    stopCamera()
-    processPhoto(c.toDataURL('image/jpeg', 0.9))
+  const handleCaptured = ({ photo, descriptor }: { photo: string; descriptor: string }) => {
+    setPhotoDataUrl(photo)
+    setFaceDescriptor(descriptor)
+    setPhotoReason('')
+    setPhotoState('done')
   }
 
   // ── Upload ────────────────────────────────────────────────────────
@@ -100,24 +62,28 @@ export default function NewEmployeePage() {
     processPhoto(url)
   }
 
-  // ── Process photo: compress, then extract the face descriptor ────
-  // The descriptor is what the scanners match against, so it is computed here
-  // rather than left for the first scanner session to fill in.
+  // ── Process photo: ตรวจขนาดใบหน้า ครอปให้พอดี แล้วสร้าง descriptor ────
+  // รูปที่ใบหน้าเล็กเกินไปจะถูกปฏิเสธ เพราะสแกนเข้างานแล้วจดจำไม่ได้
   const processPhoto = async (src: string) => {
     setPhotoState('analyzing')
     setPhotoDataUrl(src)
-    const compressed = await compressImage(src)
-    setPhotoDataUrl(compressed)
-    const descriptor = await extractFaceDescriptor(compressed)
-    setFaceDescriptor(descriptor)
+    setPhotoReason('')
+    const r = await analyzeFacePhoto(src)
+    if (r.ok && r.photo && r.descriptor) {
+      setPhotoDataUrl(r.photo)
+      setFaceDescriptor(r.descriptor)
+    } else {
+      setFaceDescriptor(null)
+      setPhotoReason(r.reason || '')
+    }
     setPhotoState('done')
   }
 
   const resetPhoto = () => {
-    stopCamera()
     setPhotoState('idle')
     setPhotoDataUrl(null)
     setFaceDescriptor(null)
+    setPhotoReason('')
   }
 
   const isOfficePosition = positionPreset === 'head_office' || positionPreset === 'other'
@@ -162,7 +128,8 @@ export default function NewEmployeePage() {
         body: JSON.stringify({
           ...form,
           job_title: actualJobTitle,
-          face_photo: photoDataUrl || undefined,
+          // บันทึกรูปเฉพาะที่ผ่านการตรวจขนาดใบหน้าแล้ว
+          face_photo: faceDescriptor ? (photoDataUrl || undefined) : undefined,
           face_descriptor: faceDescriptor || undefined,
           qr_code: qrCode || undefined,
           sales_point_id: form.employee_type === 'sales' ? form.sales_point_id : undefined,
@@ -362,31 +329,9 @@ export default function NewEmployeePage() {
             </div>
           )}
 
-          {/* Camera live */}
+          {/* Camera live — กรอบวงรี + ตรวจขนาดใบหน้าก่อนถ่าย */}
           {photoState === 'camera' && (
-            <div className="space-y-3">
-              <div className="relative rounded-xl overflow-hidden bg-black aspect-square max-h-80 mx-auto">
-                <video ref={videoRef} autoPlay muted playsInline
-                  className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} />
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="w-2/3 h-4/5 border-4 border-white border-opacity-60 rounded-[50%]" />
-                </div>
-                <p className="absolute bottom-4 left-0 right-0 text-center text-white text-sm bg-black bg-opacity-50 py-1">
-                  จัดใบหน้าให้อยู่ในกรอบ
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button type="button" onClick={takePhoto}
-                  className="flex-1 btn-primary flex items-center justify-center gap-2">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                  ถ่ายภาพ
-                </button>
-                <button type="button" onClick={resetPhoto} className="btn-secondary">ยกเลิก</button>
-              </div>
-            </div>
+            <FaceCapture onCaptured={handleCaptured} onCancel={resetPhoto} />
           )}
 
           {/* Analyzing */}
@@ -427,8 +372,8 @@ export default function NewEmployeePage() {
               ) : (
                 <div className="flex items-center justify-between px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
                   <div>
-                    <p className="text-sm font-medium text-amber-800">ไม่พบใบหน้าในรูปนี้</p>
-                    <p className="text-xs text-amber-700">บันทึกรูปได้ แต่จะสแกนใบหน้าไม่ได้ — ถ่ายให้เห็นหน้าชัด ตรงกล้อง แสงพอ</p>
+                    <p className="text-sm font-medium text-amber-800">รูปนี้ใช้สแกนใบหน้าไม่ได้</p>
+                    <p className="text-xs text-amber-700">{photoReason || 'ถ่ายให้เห็นหน้าชัด ตรงกล้อง แสงพอ'}</p>
                   </div>
                   <button type="button" onClick={resetPhoto} className="text-xs text-amber-700 font-medium hover:underline whitespace-nowrap">ถ่ายใหม่</button>
                 </div>

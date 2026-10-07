@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { evaluateFaceFit, FACE_VIEW_ASPECT, FACE_GUIDE_HEIGHT, type FaceFit } from '@/lib/face'
 
 interface Employee {
   id: string
@@ -22,7 +23,18 @@ type LoadStatus = 'loading-models' | 'extracting' | 'ready' | 'no-faces' | 'erro
 // Stricter matching: 0.45 distance threshold (default 0.6 accepts lookalikes),
 // and the same person must match on N consecutive frames before check-in fires.
 const MATCH_THRESHOLD = 0.45
-const REQUIRED_CONSECUTIVE_MATCHES = 3
+// เดิม 3 เฟรมห่าง 0.8 วินาที ใบหน้าแค่เดินผ่านกล้องก็ลงเวลาแล้ว ตอนนี้ต้องอยู่ใน
+// กรอบ ขนาดพอดี และตรงคนเดิมต่อเนื่อง 4 รอบ (ราว 2.5 วินาที) ถึงจะบันทึก
+const REQUIRED_CONSECUTIVE_MATCHES = 4
+const SCAN_INTERVAL_MS = 600
+
+const RING: Record<FaceFit['level'], string> = {
+  none: 'border-white/60',
+  far: 'border-amber-400',
+  close: 'border-amber-400',
+  off: 'border-amber-400',
+  ok: 'border-green-400',
+}
 
 export default function FaceScanner({ employees, onMatch, onError, isActive = true }: FaceScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -42,6 +54,7 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
   const [detecting, setDetecting] = useState(false)
   const [confirmProgress, setConfirmProgress] = useState(0)
   const [unknownFace, setUnknownFace] = useState(false)
+  const [fit, setFit] = useState<FaceFit>({ ok: false, level: 'none', hint: 'ให้ใบหน้าอยู่ในกรอบ', ratio: 0 })
 
   // ── Load models ONCE on mount, rebuild matcher when employees change ─
   useEffect(() => {
@@ -178,7 +191,19 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
         .withFaceLandmarks(true)
         .withFaceDescriptor()
 
-      if (det) {
+      // ใบหน้าต้องอยู่ในกรอบและขนาดพอดีก่อน ถึงจะนับว่าสแกน — ใบหน้าเล็กหรือเฉียงขอบ
+      // ได้ descriptor คุณภาพต่ำ ทำให้จับคู่ผิดคนหรือไม่ติด
+      const box = det
+        ? { x: det.detection.box.x, y: det.detection.box.y, width: det.detection.box.width, height: det.detection.box.height }
+        : null
+      const f = evaluateFaceFit(box, frame.width, frame.height)
+      setFit(f)
+
+      if (det && !f.ok) {
+        candidateRef.current = null
+        setConfirmProgress(0)
+        setUnknownFace(false)
+      } else if (det) {
         const match = matcherRef.current.findBestMatch(det.descriptor)
         if (match.label === 'unknown') {
           candidateRef.current = null
@@ -216,7 +241,7 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
 
   useEffect(() => {
     if (loadStatus !== 'ready' || !isActive) return
-    intervalRef.current = setInterval(detectFace, 800)
+    intervalRef.current = setInterval(detectFace, SCAN_INTERVAL_MS)
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
@@ -245,11 +270,14 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
         </div>
       )}
 
-      <div className="relative rounded-xl overflow-hidden bg-black" style={{ minHeight: isLoading ? 240 : 0 }}>
+      <div
+        className="relative rounded-xl overflow-hidden bg-black mx-auto w-full max-w-lg"
+        style={{ aspectRatio: String(FACE_VIEW_ASPECT), minHeight: isLoading ? 240 : 0 }}
+      >
         <video
           ref={videoRef}
           autoPlay muted playsInline
-          className="w-full max-h-96 object-cover"
+          className="absolute inset-0 w-full h-full object-cover"
           style={{ transform: 'scaleX(-1)' }}
         />
         <canvas
@@ -258,12 +286,27 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
           style={{ transform: 'scaleX(-1)' }}
         />
 
+        {/* กรอบวงรีสำหรับจัดใบหน้า — เปลี่ยนสีตามความพอดี ส่วนนอกกรอบหรี่ลง */}
         {loadStatus === 'ready' && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="w-48 h-48 border-2 border-green-400 rounded-full opacity-50">
-              <div className="w-full h-full border-4 border-transparent border-t-green-400 rounded-full animate-spin" />
+          <>
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div
+                className={`border-4 rounded-[50%] transition-colors ${RING[fit.level]}`}
+                style={{
+                  height: `${FACE_GUIDE_HEIGHT * 100}%`,
+                  aspectRatio: '0.78',
+                  boxShadow: '0 0 0 9999px rgba(0,0,0,0.45)',
+                }}
+              />
             </div>
-          </div>
+            {confirmProgress === 0 && !unknownFace && (
+              <div className={`absolute top-3 left-1/2 -translate-x-1/2 text-sm px-4 py-1.5 rounded-full font-medium whitespace-nowrap ${
+                fit.ok ? 'bg-green-600 text-white' : 'bg-black/65 text-white'
+              }`}>
+                {fit.ok ? 'ตำแหน่งพอดี' : fit.hint}
+              </div>
+            )}
+          </>
         )}
 
         {detecting && (

@@ -58,6 +58,7 @@ export async function PUT(
       ot_rate?: number
       commission_rate?: number
       face_descriptor?: string
+      face_photo?: string
       qr_code?: string
       phone?: string
       is_active?: number
@@ -86,7 +87,7 @@ export async function PUT(
       return Response.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const { name, job_title, salary_type, sales_point_id, daily_rate, monthly_salary, ot_rate, commission_rate, face_descriptor, qr_code, phone, is_active, work_start, work_end, work_days } = body
+    const { name, job_title, salary_type, sales_point_id, daily_rate, monthly_salary, ot_rate, commission_rate, face_descriptor, face_photo, qr_code, phone, is_active, work_start, work_end, work_days } = body
 
     const employee_type = job_title !== undefined ? (job_title === 'sales' ? 'sales' : 'kitchen') : undefined
 
@@ -111,6 +112,7 @@ export async function PUT(
         ot_rate = COALESCE(?, ot_rate),
         commission_rate = COALESCE(?, commission_rate),
         face_descriptor = COALESCE(?, face_descriptor),
+        face_photo = COALESCE(?, face_photo),
         qr_code = COALESCE(?, qr_code),
         phone = COALESCE(?, phone),
         is_active = COALESCE(?, is_active),
@@ -127,7 +129,7 @@ export async function PUT(
     `).bind(
       name ?? null, employee_type ?? null, job_title ?? null, salary_type ?? null, sales_point_id ?? null,
       daily_rate ?? null, monthly_salary ?? null, ot_rate ?? null, commission_rate ?? null,
-      face_descriptor ?? null, qr_code ?? null, phone ?? null,
+      face_descriptor ?? null, face_photo ?? null, qr_code ?? null, phone ?? null,
       is_active ?? null, work_start ?? null, work_end ?? null, work_days ?? null,
       payCycle, flag(body.no_ot), flag(body.no_diligence), flag(body.incentive_eligible),
       partnerName, partnerShare,

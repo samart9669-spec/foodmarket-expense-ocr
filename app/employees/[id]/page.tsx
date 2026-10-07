@@ -6,7 +6,9 @@ import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { PAY_CYCLE_LABELS, CYCLES_PER_MONTH, type PayCycle } from '@/lib/pay-terms'
 import { getAdminRole, getAuthHeaders } from '@/lib/utils'
-import { extractFaceDescriptor } from '@/lib/face'
+import { useRef } from 'react'
+import { analyzeFacePhoto } from '@/lib/face'
+import FaceCapture from '@/components/FaceCapture'
 
 interface Employee {
   id: string; name: string; employee_type: string; job_title: string | null; salary_type: string
@@ -33,6 +35,8 @@ export default function EmployeeDetailPage() {
   const [forbidden, setForbidden] = useState(false)
   const [registeringFace, setRegisteringFace] = useState(false)
   const [faceMsg, setFaceMsg] = useState('')
+  const [faceCamera, setFaceCamera] = useState(false)
+  const faceFileRef = useRef<HTMLInputElement>(null)
   const role = typeof window !== 'undefined' ? getAdminRole() : ''
   const [form, setForm] = useState({
     name: '', job_title: 'kitchen', employee_type: 'kitchen', salary_type: 'daily',
@@ -143,31 +147,50 @@ export default function EmployeeDetailPage() {
     } catch { setError('เกิดข้อผิดพลาด') } finally { setSaving(false) }
   }
 
-  // Turns an already uploaded photo into a face descriptor so the scanners
-  // can recognise this employee.
-  const registerFaceFromPhoto = async () => {
-    if (!employee?.face_photo) return
+  // บันทึกรูปที่ครอปแล้วกับ descriptor ของพนักงานคนนี้
+  const saveFace = async (photo: string, descriptor: string): Promise<boolean> => {
+    const res = await fetch(`/api/employees/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({ face_photo: photo, face_descriptor: descriptor }),
+    })
+    if (!res.ok) { setFaceMsg('บันทึกไม่สำเร็จ กรุณาลองใหม่'); return false }
+    setEmployee(prev => prev ? { ...prev, face_photo: photo, face_descriptor: descriptor } : prev)
+    setSuccess('บันทึกใบหน้าสำเร็จ')
+    setTimeout(() => setSuccess(''), 3000)
+    return true
+  }
+
+  // ถ่ายใบหน้าใหม่จากกล้อง (มีกรอบ และถ่ายได้เมื่อใบหน้าพอดีกรอบ)
+  const handleFaceCaptured = async ({ photo, descriptor }: { photo: string; descriptor: string }) => {
+    setFaceCamera(false); setFaceMsg('')
+    setRegisteringFace(true)
+    try { await saveFace(photo, descriptor) } catch { setFaceMsg('เกิดข้อผิดพลาด กรุณาลองใหม่') } finally { setRegisteringFace(false) }
+  }
+
+  // ตรวจรูป (ขนาดใบหน้า + ครอปให้พอดี) แล้วบันทึก ใช้ทั้งรูปที่อัปโหลดและรูปเดิมในระบบ
+  const registerFaceFromSource = async (src: string) => {
     setRegisteringFace(true); setFaceMsg('')
     try {
-      const descriptor = await extractFaceDescriptor(employee.face_photo)
-      if (!descriptor) {
-        setFaceMsg('ไม่พบใบหน้าในรูปนี้ — กรุณาใช้รูปที่เห็นหน้าชัด ตรงกล้อง และมีแสงเพียงพอ')
-        return
-      }
-      const res = await fetch('/api/employees/face-descriptor', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employee_id: id, face_descriptor: descriptor }),
-      })
-      if (!res.ok) { setFaceMsg('บันทึกไม่สำเร็จ กรุณาลองใหม่'); return }
-      setEmployee(prev => prev ? { ...prev, face_descriptor: descriptor } : prev)
-      setSuccess('ลงทะเบียนใบหน้าสำเร็จ')
-      setTimeout(() => setSuccess(''), 3000)
+      const r = await analyzeFacePhoto(src)
+      if (!r.ok || !r.photo || !r.descriptor) { setFaceMsg(r.reason || 'ตรวจจับใบหน้าไม่สำเร็จ'); return }
+      await saveFace(r.photo, r.descriptor)
     } catch {
       setFaceMsg('เกิดข้อผิดพลาด กรุณาลองใหม่')
     } finally {
       setRegisteringFace(false)
     }
+  }
+
+  const handleFaceFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (faceFileRef.current) faceFileRef.current.value = ''
+    if (!file) return
+    registerFaceFromSource(URL.createObjectURL(file))
+  }
+
+  const registerFaceFromPhoto = () => {
+    if (employee?.face_photo) registerFaceFromSource(employee.face_photo)
   }
 
   const handleClearFace = async () => {
@@ -398,24 +421,45 @@ export default function EmployeeDetailPage() {
               {employee.face_descriptor ? (
                 <>
                   <p className="text-sm text-green-600">✓ ลงทะเบียนใบหน้าแล้ว — สแกนเข้างานได้</p>
-                  <button type="button" onClick={handleClearFace}
-                    className="text-sm text-red-500 hover:text-red-700 mt-1">ลบข้อมูลใบหน้า</button>
+                  <p className="text-xs text-gray-500 mt-0.5">ถ้าสแกนไม่ติด ให้ถ่ายใหม่ให้ใบหน้าเต็มกรอบ</p>
                 </>
               ) : employee.face_photo ? (
                 <>
                   <p className="text-sm text-amber-700">มีรูปแล้ว แต่ยังไม่ได้ลงทะเบียนใบหน้า</p>
-                  <p className="text-xs text-gray-500 mt-0.5">กดปุ่มด้านล่างเพื่อประมวลผลรูปนี้ให้สแกนเข้างานได้</p>
                   <button type="button" onClick={registerFaceFromPhoto} disabled={registeringFace}
                     className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm rounded-lg font-medium transition-colors">
                     {registeringFace ? 'กำลังตรวจจับใบหน้า...' : 'ลงทะเบียนใบหน้าจากรูปนี้'}
                   </button>
-                  {faceMsg && <p className="text-sm text-amber-700 mt-2">{faceMsg}</p>}
                 </>
               ) : (
-                <p className="text-sm text-gray-400">ยังไม่มีรูปภาพ — เพิ่มรูปได้ที่หน้าเพิ่มพนักงาน</p>
+                <p className="text-sm text-gray-400">ยังไม่มีรูปภาพ</p>
               )}
+
+              {!faceCamera && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  <button type="button" onClick={() => { setFaceMsg(''); setFaceCamera(true) }} disabled={registeringFace}
+                    className="px-3 py-1.5 border border-blue-300 text-blue-700 hover:bg-blue-50 disabled:opacity-50 text-sm rounded-lg font-medium">
+                    {employee.face_photo ? 'ถ่ายใบหน้าใหม่' : 'ถ่ายใบหน้า'}
+                  </button>
+                  <button type="button" onClick={() => faceFileRef.current?.click()} disabled={registeringFace}
+                    className="px-3 py-1.5 border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 text-sm rounded-lg font-medium">
+                    อัปโหลดรูป
+                  </button>
+                  {employee.face_descriptor && (
+                    <button type="button" onClick={handleClearFace}
+                      className="px-3 py-1.5 text-sm text-red-500 hover:text-red-700">ลบข้อมูลใบหน้า</button>
+                  )}
+                  <input ref={faceFileRef} type="file" accept="image/*" className="hidden" onChange={handleFaceFile} />
+                </div>
+              )}
+              {registeringFace && !faceCamera && <p className="text-sm text-blue-600 mt-2">กำลังตรวจจับใบหน้า...</p>}
+              {faceMsg && <p className="text-sm text-amber-700 mt-2">{faceMsg}</p>}
             </div>
           </div>
+
+          {faceCamera && (
+            <FaceCapture onCaptured={handleFaceCaptured} onCancel={() => setFaceCamera(false)} />
+          )}
           <div>
             <p className="text-sm font-medium text-gray-700">QR Code</p>
             {employee.qr_code ? <span className="font-mono text-sm bg-gray-100 px-3 py-1 rounded">{employee.qr_code}</span> : <p className="text-sm text-gray-400">ไม่มี QR Code</p>}
