@@ -2,14 +2,16 @@
 
 export const runtime = 'edge'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
+import { getTodayString } from '@/lib/utils'
 
 interface AttendanceRecord {
   id: string
   employee_id: string
   employee_name: string
   employee_type: string
+  job_title?: string | null
   employee_code: string | null
   primary_point_name: string | null
   sales_point_name: string | null
@@ -51,14 +53,35 @@ interface DashboardData {
   pending_leave_list: PendingLeave[]
   recent_attendance: AttendanceRecord[]
   attendance_by_type: Array<{ employee_type: string; count: number }>
+  attendance_by_dept: Array<{ department: string; count: number }>
   cost_by_point: CostByPoint[]
   today: string
+  real_today: string
 }
 
 const LEAVE_LABELS: Record<string, string> = { sick: 'ลาป่วย', annual: 'ลาพักร้อน', personal: 'ลากิจ', emergency: 'ลาฉุกเฉิน' }
 
-const BRANCH_OPTIONS = ['ทั้งหมด', 'จุดขาย 1', 'จุดขาย 2', 'จุดขาย 3']
-const GROUP_OPTIONS = ['ทั้งหมด', 'ฟรอนต์ (หน้าร้าน)', 'ครัว']
+// ค่าที่ส่งให้ API (value) กับข้อความที่แสดง (label)
+const GROUP_OPTIONS = [
+  { value: 'all', label: 'ทั้งหมด' },
+  { value: 'sales', label: 'ฟรอนต์ (หน้าร้าน)' },
+  { value: 'kitchen', label: 'ครัวกลาง' },
+  { value: 'office', label: 'สำนักงานใหญ่ (Head Office)' },
+]
+
+/** บวก/ลบวันจาก YYYY-MM-DD โดยไม่พึ่งเขตเวลาของเครื่อง */
+function shiftDate(iso: string, days: number): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  const t = new Date(Date.UTC(y, m - 1, d + days))
+  return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`
+}
+
+function thaiDateLabel(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString('th-TH', {
+    timeZone: 'UTC', year: 'numeric', month: 'long', day: 'numeric', weekday: 'long',
+  })
+}
 
 const CHART_COLORS = [
   'bg-green-500',
@@ -83,7 +106,14 @@ function getInitials(name: string): string {
   return name.slice(0, 2)
 }
 
-function getTypeLabel(type: string): string {
+// ตำแหน่งที่ไม่ใช่หน้าร้าน/ครัว (เช่น head_office) ถือเป็นสำนักงานใหญ่
+function isOfficeTitle(title: string | null | undefined): boolean {
+  const t = (title || '').trim()
+  return t !== '' && t !== 'sales' && t !== 'kitchen'
+}
+
+function getTypeLabel(type: string, title?: string | null): string {
+  if (isOfficeTitle(title)) return 'Head Office'
   if (type === 'kitchen') return 'ครัว'
   if (type === 'sales') return 'ฟรอนต์'
   return 'Staff'
@@ -97,28 +127,47 @@ const AVATAR_COLORS = [
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [selectedGroup, setSelectedGroup] = useState(GROUP_OPTIONS[0])
-  const [selectedBranch, setSelectedBranch] = useState(BRANCH_OPTIONS[0])
+  const [selectedGroup, setSelectedGroup] = useState('all')
+  const [selectedBranch, setSelectedBranch] = useState('all')
+  const [branches, setBranches] = useState<Array<{ id: string; name: string }>>([])
+  const [selectedDate, setSelectedDate] = useState(getTodayString())
   const [bonuses, setBonuses] = useState<Record<string, number>>({})
   const [deductions, setDeductions] = useState<Record<string, number>>({})
 
-  const today = new Date()
-  const todayStr = today.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })
+  const realToday = getTodayString()
+  const isToday = selectedDate >= realToday
+  const dateStr = thaiDateLabel(selectedDate)
+  // คำที่ใช้ในหัวการ์ด: ดูวันนี้ = "วันนี้" ย้อนหลัง = ระบุวันที่
+  const dayWord = isToday ? 'วันนี้' : 'วันที่เลือก'
 
+  // รายชื่อสาขาสำหรับตัวกรอง
   useEffect(() => {
-    fetch('/api/dashboard')
+    fetch('/api/sales-points')
+      .then(r => r.json())
+      .then((d: any) => setBranches((d.sales_points || d.salesPoints || d || []).map((b: any) => ({ id: b.id, name: b.name }))))
+      .catch(() => {})
+  }, [])
+
+  const load = useCallback(() => {
+    setLoading(true)
+    const qs = new URLSearchParams({ date: selectedDate, department: selectedGroup, branch: selectedBranch })
+    fetch(`/api/dashboard?${qs}`)
       .then(r => r.json())
       .then((d: any) => setData(d))
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [])
+  }, [selectedDate, selectedGroup, selectedBranch])
 
-  const kitchenCount = data?.attendance_by_type?.find(t => t.employee_type === 'kitchen')?.count ?? 0
-  const salesCount   = data?.attendance_by_type?.find(t => t.employee_type === 'sales')?.count ?? 0
+  useEffect(() => { load() }, [load])
+
+  const deptCount = (k: string) => data?.attendance_by_dept?.find(t => t.department === k)?.count ?? 0
+  const kitchenCount = deptCount('kitchen')
+  const salesCount   = deptCount('sales')
+  const officeCount  = deptCount('office')
 
   const totalCostByPoint = data?.cost_by_point?.reduce((s, p) => s + p.cost, 0) ?? 0
 
-  if (loading) {
+  if (loading && !data) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full" />
@@ -127,7 +176,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className={`space-y-5 transition-opacity ${loading ? 'opacity-60' : ''}`}>
 
       {/* ─── Filter bar ─── */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-5 py-4 flex flex-wrap items-center gap-4">
@@ -141,7 +190,7 @@ export default function DashboardPage() {
             <p className="text-xs text-gray-400 mb-0.5">กลุ่มงาน</p>
             <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)}
               className="w-full text-sm font-medium text-gray-800 bg-transparent border-0 outline-none cursor-pointer">
-              {GROUP_OPTIONS.map(o => <option key={o}>{o}</option>)}
+              {GROUP_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
           <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -162,7 +211,9 @@ export default function DashboardPage() {
             <p className="text-xs text-gray-400 mb-0.5">สาขาปฏิบัติงาน</p>
             <select value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}
               className="w-full text-sm font-medium text-gray-800 bg-transparent border-0 outline-none cursor-pointer">
-              {BRANCH_OPTIONS.map(o => <option key={o}>{o}</option>)}
+              <option value="all">ทั้งหมด</option>
+              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              <option value="none">ไม่ได้สแกนที่สาขา (เช่น สำนักงานใหญ่)</option>
             </select>
           </div>
           <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -180,7 +231,33 @@ export default function DashboardPage() {
           </div>
           <div>
             <p className="text-xs text-gray-400 mb-0.5">ประจำวันที่</p>
-            <p className="text-sm font-medium text-gray-800">{todayStr}</p>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setSelectedDate(d => shiftDate(d, -1))}
+                className="w-7 h-7 rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50"
+                aria-label="วันก่อนหน้า"
+              >‹</button>
+              <input
+                type="date"
+                value={selectedDate}
+                max={realToday}
+                onChange={e => e.target.value && setSelectedDate(e.target.value > realToday ? realToday : e.target.value)}
+                className="text-sm font-medium text-gray-800 border border-gray-200 rounded-md px-2 py-1"
+              />
+              <button
+                onClick={() => setSelectedDate(d => shiftDate(d, 1) > realToday ? realToday : shiftDate(d, 1))}
+                disabled={isToday}
+                className="w-7 h-7 rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30"
+                aria-label="วันถัดไป"
+              >›</button>
+              {!isToday && (
+                <button
+                  onClick={() => setSelectedDate(realToday)}
+                  className="ml-1 px-2.5 py-1 text-xs rounded-md bg-blue-600 text-white hover:bg-blue-700"
+                >กลับวันนี้</button>
+              )}
+            </div>
+            <p className="text-xs text-gray-500 mt-1">{dateStr}{!isToday && ' (ข้อมูลย้อนหลัง)'}</p>
           </div>
         </div>
       </div>
@@ -192,7 +269,7 @@ export default function DashboardPage() {
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
           <div className="flex items-start justify-between">
             <div className="flex-1">
-              <p className="text-sm text-gray-500 mb-2">พนักงานสแกนเข้างานแล้ว</p>
+              <p className="text-sm text-gray-500 mb-2">{isToday ? 'พนักงานสแกนเข้างานแล้ว' : 'พนักงานที่เข้างานในวันนั้น'}</p>
               <div className="flex items-baseline gap-2">
                 <span className="text-4xl font-bold text-gray-900">{data?.today_attendance ?? 0}</span>
                 <span className="text-xl text-gray-400">/ {data?.total_employees ?? 0}</span>
@@ -206,6 +283,10 @@ export default function DashboardPage() {
                 <span className="flex items-center gap-1 text-xs text-gray-500">
                   <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
                   ครัว {kitchenCount} คน
+                </span>
+                <span className="flex items-center gap-1 text-xs text-gray-500">
+                  <span className="w-2 h-2 rounded-full bg-purple-500 inline-block" />
+                  Head Office {officeCount} คน
                 </span>
               </div>
             </div>
@@ -221,14 +302,14 @@ export default function DashboardPage() {
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
           <div className="flex items-start justify-between">
             <div className="flex-1">
-              <p className="text-sm text-gray-500 mb-2">ต้นทุนค่าแรงสะสมวันนี้</p>
+              <p className="text-sm text-gray-500 mb-2">{isToday ? 'ต้นทุนค่าแรงสะสมวันนี้' : 'ต้นทุนค่าแรงของวันที่เลือก'}</p>
               <div className="flex items-baseline gap-2">
                 <span className="text-4xl font-bold text-gray-900">
                   {(data?.today_labor_cost ?? 0).toLocaleString('th-TH', { maximumFractionDigits: 0 })}
                 </span>
                 <span className="text-sm text-gray-400">บาท</span>
               </div>
-              <p className="text-xs text-gray-400 mt-2">คำนวณจากอัตรารายวัน + OT พนักงานที่เข้างานวันนี้</p>
+              <p className="text-xs text-gray-400 mt-2">คำนวณจากอัตรารายวัน + OT พนักงานที่เข้างาน{dayWord}</p>
             </div>
             <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center ml-3 flex-shrink-0">
               <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -247,7 +328,7 @@ export default function DashboardPage() {
                 <span className="text-4xl font-bold text-gray-900">{data?.pending_payroll ?? 0}</span>
                 <span className="text-sm text-gray-400">รายการ</span>
               </div>
-              <p className="text-xs text-gray-400 mt-2">เงินเดือนที่ค้างอนุมัติ (pending)</p>
+              <p className="text-xs text-gray-400 mt-2">เงินเดือนที่ค้างอนุมัติ (pending) — ทุกแผนก/สาขา</p>
             </div>
             <div className="flex flex-col items-end justify-between h-full gap-3">
               <div className="w-12 h-12 bg-orange-50 rounded-xl flex items-center justify-center flex-shrink-0">
@@ -349,7 +430,7 @@ export default function DashboardPage() {
             <svg className="w-10 h-10 mx-auto mb-2 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
             </svg>
-            <p className="text-sm">ยังไม่มีข้อมูลการเข้างานวันนี้</p>
+            <p className="text-sm">ไม่มีข้อมูลการเข้างาน{isToday ? 'วันนี้' : 'ในวันที่เลือก'}</p>
           </div>
         )}
       </div>
@@ -369,7 +450,7 @@ export default function DashboardPage() {
                 <th className="px-3 py-3 text-left text-xs font-medium text-gray-500">รหัสพนักงาน</th>
                 <th className="px-3 py-3 text-left text-xs font-medium text-gray-500">ชื่อ - ประเภท</th>
                 <th className="px-3 py-3 text-left text-xs font-medium text-gray-500">สังกัดหลัก</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500">จุดปฏิบัติงานวันนี้</th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500">จุดปฏิบัติงาน{isToday ? 'วันนี้' : ''}</th>
                 <th className="px-3 py-3 text-left text-xs font-medium text-gray-500">
                   <span className="flex items-center gap-1">
                     สถานะกะเวลา
@@ -388,7 +469,8 @@ export default function DashboardPage() {
               {(data?.recent_attendance ?? []).map((att, idx) => {
                 const empCode = att.employee_code ?? att.employee_id.slice(0, 10).toUpperCase()
                 const primaryBranch = att.primary_point_name ?? '-'
-                const todayBranch = att.sales_point_name ?? att.primary_point_name ?? '-'
+                const todayBranch = att.sales_point_name ?? att.primary_point_name
+                  ?? (isOfficeTitle(att.job_title) ? 'สำนักงานใหญ่' : '-')
                 const isCrossPosted = att.sales_point_name && att.primary_point_name &&
                   att.sales_point_name !== att.primary_point_name
                 const shiftRange = att.shift_start && att.shift_end
@@ -413,7 +495,7 @@ export default function DashboardPage() {
                         </div>
                         <div>
                           <p className="font-medium text-gray-900 whitespace-nowrap">{att.employee_name}</p>
-                          <p className="text-xs text-gray-400">{getTypeLabel(att.employee_type)}</p>
+                          <p className="text-xs text-gray-400">{getTypeLabel(att.employee_type, att.job_title)}</p>
                         </div>
                       </div>
                     </td>
@@ -550,7 +632,7 @@ export default function DashboardPage() {
               {(!data?.recent_attendance || data.recent_attendance.length === 0) && (
                 <tr>
                   <td colSpan={9} className="px-3 py-12 text-center text-gray-400 text-sm">
-                    ยังไม่มีข้อมูลการเข้างานวันนี้
+                    ไม่มีข้อมูลการเข้างาน{isToday ? 'วันนี้' : 'ในวันที่เลือก'}{selectedGroup !== 'all' || selectedBranch !== 'all' ? ' ตามตัวกรองที่เลือก' : ''}
                   </td>
                 </tr>
               )}
