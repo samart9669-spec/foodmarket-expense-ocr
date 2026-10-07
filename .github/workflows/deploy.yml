@@ -17,33 +17,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ตรวจโทเคนก่อนลงมือ ถ้าหมดอายุจะได้รู้ทันทีตั้งแต่ 10 วินาทีแรก
+      # ตรวจโทเคนก่อนลงมือ ถ้าใช้ไม่ได้จะได้รู้ทันทีตั้งแต่ 10 วินาทีแรก
       # ไม่ใช่ build เสร็จแล้วค่อยล้มตอนจะ deploy แล้วเงียบไปหลายวัน
       - name: Check Cloudflare API token
         env:
           CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          # พิมพ์แค่ความยาว ไม่พิมพ์ค่าโทเคน — ความยาวบอกได้ว่าใส่อะไรมา
-          #   40 = รูปแบบโทเคนที่ถูก   32 = คัดลอก Token ID มาผิด   0 = secret ว่าง
+          # ช่องว่าง/ขึ้นบรรทัดที่ติดมาตอนวางเป็นสาเหตุที่เจอบ่อย ตัดออกก่อน
           trimmed=$(printf '%s' "$CF_TOKEN" | tr -d '[:space:]')
           echo "ความยาวค่าที่อ่านได้ ${#CF_TOKEN} ตัว (ตัดช่องว่างแล้ว ${#trimmed} ตัว)"
 
           verify() {
-            curl -s -o "$2" -w '%{http_code}' \
-              "https://api.cloudflare.com/client/v4/user/tokens/verify" \
-              -H "Authorization: Bearer $1"
+            curl -s -o "$2" -w '%{http_code}' "$1" -H "Authorization: Bearer $trimmed"
           }
-          # ใช้ค่าที่ตัดช่องว่างแล้วเสมอ ช่องว่างที่ติดมาตอนวางเป็นสาเหตุที่เจอบ่อย
-          code=$(verify "$trimmed" /tmp/verify.json)
+          # Cloudflare มีโทเคนสองแบบ ตรวจคนละ endpoint
+          #   account-owned (Manage account > Account API tokens) -> /accounts/<id>/tokens/verify
+          #   user          (My Profile > API Tokens)             -> /user/tokens/verify
+          acct=$(verify "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/tokens/verify" /tmp/verify-acct.json)
+          user=$(verify "https://api.cloudflare.com/client/v4/user/tokens/verify" /tmp/verify-user.json)
 
-          if [ "$code" != "200" ]; then
-            echo "::error::CLOUDFLARE_API_TOKEN ใช้ไม่ได้ (HTTP $code) — ดูความยาวด้านบน: 32 ตัวแปลว่าคัดลอก Token ID มาแทนตัวโทเคน, 0 ตัวแปลว่า secret ว่างหรือใส่ผิดที่ (ต้องเป็น Settings > Secrets and variables > Actions > Repository secrets), 40 ตัวแปลว่ารูปแบบถูกแต่โทเคนถูกเพิกถอนหรือหมดอายุ"
-            cat /tmp/verify.json
+          if [ "$acct" != "200" ] && [ "$user" != "200" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN ใช้ไม่ได้ — ตรวจแบบ account ได้ HTTP $acct, แบบ user ได้ HTTP $user ให้สร้างโทเคนใหม่ที่มีสิทธิ์ Cloudflare Pages:Edit และ D1:Edit แล้วอัปเดต GitHub secret"
+            cat /tmp/verify-acct.json; echo
+            cat /tmp/verify-user.json
             exit 1
           fi
+          [ "$acct" = "200" ] && echo "โทเคนใช้งานได้ (account-owned)" || echo "โทเคนใช้งานได้ (user token)"
+
           # ส่งต่อให้ขั้นตอนถัดไปใช้ ไม่ต้องอ่าน secret ดิบซ้ำอีก
           echo "CLOUDFLARE_API_TOKEN=$trimmed" >> "$GITHUB_ENV"
-          echo "โทเคนใช้งานได้"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
