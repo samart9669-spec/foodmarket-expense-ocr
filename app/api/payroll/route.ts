@@ -22,17 +22,31 @@ async function currentUser(request: NextRequest, db: any): Promise<SessionUser |
   return verifySession(db, auth.slice(7))
 }
 
+// ผู้ที่อนุมัติ/ทำเครื่องหมายจ่ายเงินเดือนของรายการใครก็ได้ — เจ้าของระบบและผู้จัดการ
+// (เดิมทำได้เฉพาะรายการที่ตัวเองสร้าง ผู้จัดการที่ได้รับสิทธิ์ใหม่จึงกดอนุมัติ
+// รายการที่เจ้าของระบบคำนวณไว้ไม่ได้ และหน้าเว็บไม่แจ้งอะไรเลย)
+const APPROVER_ROLES = ['superadmin', 'admin']
+// ผู้ที่แก้ไขข้อมูลเงินเดือนได้ — viewer (อ่านอย่างเดียว) และ approver (อนุมัติ
+// เวลางานอย่างเดียว) ต้องแก้ไม่ได้
+const WRITER_ROLES = ['superadmin', 'admin', 'manager']
+
+function canWrite(user: SessionUser): boolean {
+  return WRITER_ROLES.includes(user.role)
+}
+
 /** Own records, unowned legacy records, or anything when superadmin. */
 function canManage(user: SessionUser, record: { created_by?: string | null }): boolean {
   if (user.role === 'superadmin') return true
   return !record.created_by || record.created_by === user.username
 }
 
-/** Superadmins may look at everyone's records by asking for it. */
+/** เจ้าของระบบและผู้จัดการดูรายการของทุกคนได้เมื่อขอ (ต้องเห็นถึงจะอนุมัติได้) */
 function wantsAll(request: NextRequest, user: SessionUser): boolean {
   const { searchParams } = new URL(request.url)
-  return user.role === 'superadmin' && searchParams.get('all') === '1'
+  return APPROVER_ROLES.includes(user.role) && searchParams.get('all') === '1'
 }
+
+const NO_WRITE = { error: 'บัญชีนี้ไม่มีสิทธิ์แก้ไขหรืออนุมัติเงินเดือน' }
 
 export async function GET(request: NextRequest) {
   try {
@@ -82,6 +96,7 @@ export async function POST(request: NextRequest) {
 
     const user = await currentUser(request, db)
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+    if (!canWrite(user)) return Response.json(NO_WRITE, { status: 403 })
     await ensureCreatedByColumn(db)
 
     const { employee_id, period_start, period_end, days_worked = 0, day_rate_total = 0,
@@ -147,9 +162,7 @@ export async function PATCH(request: NextRequest) {
 
     const existing = await db.prepare('SELECT * FROM payroll WHERE id = ?').bind(id).first() as any
     if (!existing) return Response.json({ error: 'Payroll record not found' }, { status: 404 })
-    if (!canManage(user, existing)) {
-      return Response.json({ error: 'รายการนี้เป็นของผู้ใช้อื่น' }, { status: 403 })
-    }
+    if (!canWrite(user)) return Response.json(NO_WRITE, { status: 403 })
 
     // Any change to the amounts is a correction — keep the first computed total
     // and stamp who changed it so payroll stays auditable.
@@ -158,6 +171,13 @@ export async function PATCH(request: NextRequest) {
       sales_total, commission_total, bonus, deductions, total_pay,
       incentive_total, diligence_deduction, diligence_allowance,
     ].some(v => v !== undefined)
+
+    // เปลี่ยนสถานะอย่างเดียว (อนุมัติ / จ่ายแล้ว) ผู้จัดการทำได้กับทุกรายการ
+    // ส่วนการแก้ตัวเลขหรือหมายเหตุยังจำกัดเฉพาะรายการของตัวเอง
+    const isStatusOnly = status !== undefined && !isAmountEdit && notes === undefined
+    if (!canManage(user, existing) && !(isStatusOnly && APPROVER_ROLES.includes(user.role))) {
+      return Response.json({ error: 'รายการนี้เป็นของผู้ใช้อื่น' }, { status: 403 })
+    }
 
     try {
       await db.prepare('ALTER TABLE payroll ADD COLUMN original_total_pay REAL').run()
@@ -230,6 +250,7 @@ export async function DELETE(request: NextRequest) {
 
     const existing = await db.prepare('SELECT id, created_by FROM payroll WHERE id = ?').bind(id).first() as any
     if (!existing) return Response.json({ error: 'ไม่พบรายการเงินเดือนนี้' }, { status: 404 })
+    if (!canWrite(user)) return Response.json(NO_WRITE, { status: 403 })
     if (!canManage(user, existing)) {
       return Response.json({ error: 'รายการนี้เป็นของผู้ใช้อื่น' }, { status: 403 })
     }

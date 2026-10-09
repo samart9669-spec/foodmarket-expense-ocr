@@ -142,7 +142,12 @@ export default function PayrollPage() {
   const [showAllUsers, setShowAllUsers] = useState(false)
   const [role, setRole] = useState('')
 
-  useEffect(() => { setRole(getAdminRole()) }, [])
+  useEffect(() => {
+    const r = getAdminRole()
+    setRole(r)
+    // ผู้จัดการมีหน้าที่อนุมัติรายการของคนอื่น จึงเริ่มต้นที่แสดงทุกรายการ
+    if (r === 'admin') setShowAllUsers(true)
+  }, [])
 
   const patchCalc = (patch: Partial<CalcResult['calculation']>) => {
     setCalcEdit(prev => {
@@ -294,11 +299,22 @@ export default function PayrollPage() {
   }
 
   const handleUpdateStatus = async (id: string, status: string) => {
-    await fetch('/api/payroll', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-      body: JSON.stringify({ id, status }),
-    })
+    try {
+      const res = await fetch('/api/payroll', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ id, status }),
+      })
+      // เดิมไม่ตรวจผลลัพธ์ กดแล้วไม่เกิดอะไรขึ้นและไม่บอกเหตุผล
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({})) as any
+        alert(res.status === 401 ? 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่' : (d.error || 'ดำเนินการไม่สำเร็จ'))
+        return
+      }
+    } catch {
+      alert('เชื่อมต่อไม่สำเร็จ กรุณาลองใหม่')
+      return
+    }
     fetchPayroll()
   }
 
@@ -653,7 +669,7 @@ export default function PayrollPage() {
               {showAllUsers ? 'กำลังดูรายการของผู้ใช้ทุกคน' : 'แสดงเฉพาะรายการที่บัญชีนี้สร้าง'}
             </p>
           </div>
-          {role === 'superadmin' && (
+          {(role === 'superadmin' || role === 'admin') && (
             <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
               <input type="checkbox" className="w-4 h-4 accent-blue-600"
                 checked={showAllUsers} onChange={e => setShowAllUsers(e.target.checked)} />
