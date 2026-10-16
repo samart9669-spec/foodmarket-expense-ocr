@@ -181,3 +181,119 @@ export async function analyzeFacePhoto(src: string): Promise<FaceAnalysis> {
 }
 
 export { loadFaceApi }
+
+// ─────────────────────────────────────────────────────────────────────
+// ตัดสินผลการจับคู่ใบหน้า — ไม่เดาเมื่อกำกวม
+//
+// เดิมเลือกคนที่ใกล้ที่สุดแล้วผ่านเลยถ้าใกล้พอ โดยไม่ดูว่ามีอีกคนใกล้พอกัน
+// สองคนที่หน้าคล้ายกันจึงสลับกันไปมาตามแสงและมุมของแต่ละวัน ตอนนี้ถ้าคนอันดับ 1
+// กับอันดับ 2 ห่างกันน้อยเกินไป จะไม่ลงเวลาให้เอง แต่ให้เจ้าตัวเลือกชื่อ
+// ─────────────────────────────────────────────────────────────────────
+
+/** ระยะห่างสูงสุดที่ยอมรับว่าเป็นคนเดียวกัน (ยิ่งน้อยยิ่งเข้มงวด) */
+export const MATCH_THRESHOLD = 0.45
+/**
+ * คนอันดับ 1 ต้องใกล้กว่าอันดับ 2 อย่างน้อยเท่านี้ ถึงถือว่าชัดเจน
+ * คนละคนปกติห่างกัน 0.6 ขึ้นไป ส่วนคู่ที่หน้าคล้ายกันมักอยู่ราว 0.4-0.55
+ */
+export const AMBIGUITY_MARGIN = 0.10
+
+export interface MatchCandidate { id: string; distance: number }
+
+export type MatchVerdict =
+  | { kind: 'unknown' }
+  | { kind: 'clear'; id: string; distance: number }
+  | { kind: 'ambiguous'; ids: [string, string] }
+
+export function classifyMatch(
+  candidates: MatchCandidate[],
+  threshold = MATCH_THRESHOLD,
+  margin = AMBIGUITY_MARGIN,
+): MatchVerdict {
+  const sorted = [...candidates].sort((a, b) => a.distance - b.distance)
+  const best = sorted[0]
+  if (!best || best.distance >= threshold) return { kind: 'unknown' }
+  const second = sorted[1]
+  if (second && second.distance - best.distance < margin) {
+    return { kind: 'ambiguous', ids: [best.id, second.id] }
+  }
+  return { kind: 'clear', id: best.id, distance: best.distance }
+}
+
+export type TrackerAction =
+  | { type: 'none' }
+  | { type: 'progress'; id: string; count: number }
+  | { type: 'confirm'; id: string }
+  | { type: 'choose'; ids: string[] }
+
+/**
+ * นับผลทีละเฟรม:
+ *  - คนเดิมชัดเจนต่อเนื่อง `required` รอบ  -> confirm
+ *  - กำกวมต่อเนื่อง `ambiguousFrames` รอบ -> choose (ให้เลือกชื่อเอง)
+ *  - ผลสลับไปมาระหว่างสองคน `maxFlips` ครั้ง -> choose ด้วย (กรณีสลับกันทีละเฟรม
+ *    ซึ่งไม่เคยครบรอบยืนยัน และผู้ใช้จะเห็นแต่แถบที่ค้างอยู่)
+ */
+export class MatchTracker {
+  private candidate: { id: string; count: number } | null = null
+  private flips = 0
+  private flipIds: string[] = []
+  private ambiguousStreak = 0
+  private ambiguousIds: string[] = []
+
+  constructor(
+    private required = 4,
+    private ambiguousFrames = 3,
+    private maxFlips = 2,
+  ) {}
+
+  reset() {
+    this.candidate = null
+    this.flips = 0
+    this.flipIds = []
+    this.ambiguousStreak = 0
+    this.ambiguousIds = []
+  }
+
+  /** verdict = null เมื่อไม่มีใบหน้าที่ใช้ได้ในเฟรมนั้น */
+  push(verdict: MatchVerdict | null): TrackerAction {
+    if (!verdict || verdict.kind === 'unknown') {
+      this.reset()
+      return { type: 'none' }
+    }
+
+    if (verdict.kind === 'ambiguous') {
+      this.candidate = null
+      this.ambiguousStreak++
+      this.ambiguousIds = verdict.ids
+      if (this.ambiguousStreak >= this.ambiguousFrames) {
+        const ids = this.ambiguousIds
+        this.reset()
+        return { type: 'choose', ids }
+      }
+      return { type: 'none' }
+    }
+
+    // clear
+    this.ambiguousStreak = 0
+    if (this.candidate && this.candidate.id === verdict.id) {
+      this.candidate.count++
+    } else {
+      if (this.candidate) {
+        this.flips++
+        this.flipIds = [this.candidate.id, verdict.id]
+      }
+      this.candidate = { id: verdict.id, count: 1 }
+    }
+    if (this.flips >= this.maxFlips) {
+      const ids = Array.from(new Set(this.flipIds))
+      this.reset()
+      return { type: 'choose', ids }
+    }
+    if (this.candidate.count >= this.required) {
+      const id = this.candidate.id
+      this.reset()
+      return { type: 'confirm', id }
+    }
+    return { type: 'progress', id: verdict.id, count: this.candidate.count }
+  }
+}

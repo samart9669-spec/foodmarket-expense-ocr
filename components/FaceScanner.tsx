@@ -1,7 +1,10 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { evaluateFaceFit, FACE_VIEW_ASPECT, FACE_GUIDE_HEIGHT, type FaceFit } from '@/lib/face'
+import {
+  evaluateFaceFit, classifyMatch, MatchTracker, MATCH_THRESHOLD,
+  FACE_VIEW_ASPECT, FACE_GUIDE_HEIGHT, type FaceFit,
+} from '@/lib/face'
 
 interface Employee {
   id: string
@@ -22,7 +25,6 @@ type LoadStatus = 'loading-models' | 'extracting' | 'ready' | 'no-faces' | 'erro
 
 // Stricter matching: 0.45 distance threshold (default 0.6 accepts lookalikes),
 // and the same person must match on N consecutive frames before check-in fires.
-const MATCH_THRESHOLD = 0.45
 // เดิม 3 เฟรมห่าง 0.8 วินาที ใบหน้าแค่เดินผ่านกล้องก็ลงเวลาแล้ว ตอนนี้ต้องอยู่ใน
 // กรอบ ขนาดพอดี และตรงคนเดิมต่อเนื่อง 4 รอบ (ราว 2.5 วินาที) ถึงจะบันทึก
 const REQUIRED_CONSECUTIVE_MATCHES = 4
@@ -46,7 +48,10 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
   // Refs instead of state to avoid stale-closure bugs in the interval callback
   const lastDetectionRef = useRef<string | null>(null)
   const detectingRef = useRef(false)
-  const candidateRef = useRef<{ label: string; count: number } | null>(null)
+  // ดูผลทีละเฟรม: ยืนยันเมื่อคนเดิมชัดเจนต่อเนื่อง หรือให้เลือกชื่อเองเมื่อกำกวม/สลับไปมา
+  const trackerRef = useRef(new MatchTracker(REQUIRED_CONSECUTIVE_MATCHES))
+  const descriptorsRef = useRef<Array<{ id: string; descriptor: Float32Array }>>([])
+  const choosingRef = useRef(false)
 
   const [loadStatus, setLoadStatus] = useState<LoadStatus>('loading-models')
   const [loadMsg, setLoadMsg] = useState('กำลังโหลดโมเดลจดจำใบหน้า...')
@@ -54,6 +59,8 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
   const [detecting, setDetecting] = useState(false)
   const [confirmProgress, setConfirmProgress] = useState(0)
   const [unknownFace, setUnknownFace] = useState(false)
+  // ระบบแยกไม่ออกว่าเป็นใครในสองคนนี้ — ให้เจ้าตัวแตะเลือกชื่อ
+  const [choice, setChoice] = useState<string[] | null>(null)
   const [fit, setFit] = useState<FaceFit>({ ok: false, level: 'none', hint: 'ให้ใบหน้าอยู่ในกรอบ', ratio: 0 })
 
   // ── Load models ONCE on mount, rebuild matcher when employees change ─
@@ -134,7 +141,8 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
           return
         }
 
-        matcherRef.current = new faceapi.FaceMatcher(labeled, MATCH_THRESHOLD)
+        descriptorsRef.current = labeled.map((l: any) => ({ id: l.label, descriptor: l.descriptors[0] }))
+        matcherRef.current = true
         setLoadStatus('ready')
         setLoadMsg('')
       } catch (err: any) {
@@ -199,38 +207,41 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
       const f = evaluateFaceFit(box, frame.width, frame.height)
       setFit(f)
 
-      if (det && !f.ok) {
-        candidateRef.current = null
+      if (choosingRef.current) {
+        // กำลังรอให้เลือกชื่อ ไม่นับผลสแกนซ้ำ
+      } else if (det && !f.ok) {
+        trackerRef.current.reset()
         setConfirmProgress(0)
         setUnknownFace(false)
       } else if (det) {
-        const match = matcherRef.current.findBestMatch(det.descriptor)
-        if (match.label === 'unknown') {
-          candidateRef.current = null
-          setConfirmProgress(0)
-          setUnknownFace(true)
-        } else {
-          setUnknownFace(false)
-          const prev = candidateRef.current
-          const candidate = prev && prev.label === match.label
-            ? { label: prev.label, count: prev.count + 1 }
-            : { label: match.label, count: 1 }
-          candidateRef.current = candidate
-          setConfirmProgress(Math.min(candidate.count, REQUIRED_CONSECUTIVE_MATCHES))
+        // วัดระยะถึงทุกคน แล้วดูว่าคนอันดับ 1 ชัดเจนพอหรือไม่ ไม่ใช่แค่เอาคนที่ใกล้สุด
+        const verdict = classifyMatch(
+          descriptorsRef.current.map(d => ({
+            id: d.id, distance: faceapi.euclideanDistance(det.descriptor, d.descriptor),
+          })),
+        )
+        setUnknownFace(verdict.kind === 'unknown')
+        const action = trackerRef.current.push(verdict)
 
-          if (candidate.count >= REQUIRED_CONSECUTIVE_MATCHES && lastDetectionRef.current !== match.label) {
-            const emp = employees.find(e => e.id === match.label)
-            if (emp) {
-              lastDetectionRef.current = match.label
-              candidateRef.current = null
-              setConfirmProgress(0)
-              onMatch(emp.id, emp.name)
-              setTimeout(() => { lastDetectionRef.current = null }, 3000)
-            }
+        if (action.type === 'progress') {
+          setConfirmProgress(Math.min(action.count, REQUIRED_CONSECUTIVE_MATCHES))
+        } else if (action.type === 'confirm') {
+          setConfirmProgress(0)
+          const emp = employees.find(e => e.id === action.id)
+          if (emp && lastDetectionRef.current !== emp.id) {
+            lastDetectionRef.current = emp.id
+            onMatch(emp.id, emp.name)
+            setTimeout(() => { lastDetectionRef.current = null }, 3000)
           }
+        } else if (action.type === 'choose') {
+          setConfirmProgress(0)
+          choosingRef.current = true
+          setChoice(action.ids)
+        } else {
+          setConfirmProgress(0)
         }
       } else {
-        candidateRef.current = null
+        trackerRef.current.reset()
         setConfirmProgress(0)
         setUnknownFace(false)
       }
@@ -238,6 +249,29 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
     detectingRef.current = false
     setDetecting(false)
   }, [employees, onMatch])
+
+  const closeChoice = useCallback(() => {
+    choosingRef.current = false
+    trackerRef.current.reset()
+    setChoice(null)
+    setConfirmProgress(0)
+  }, [])
+
+  const pickEmployee = (id: string) => {
+    const emp = employees.find(e => e.id === id)
+    closeChoice()
+    if (!emp) return
+    lastDetectionRef.current = emp.id
+    onMatch(emp.id, emp.name)
+    setTimeout(() => { lastDetectionRef.current = null }, 3000)
+  }
+
+  // ไม่มีใครเลือกภายใน 20 วินาที ปิดเองแล้วเริ่มสแกนใหม่
+  useEffect(() => {
+    if (!choice) return
+    const t = setTimeout(closeChoice, 20000)
+    return () => clearTimeout(t)
+  }, [choice, closeChoice])
 
   useEffect(() => {
     if (loadStatus !== 'ready' || !isActive) return
@@ -321,7 +355,41 @@ export default function FaceScanner({ employees, onMatch, onError, isActive = tr
           </div>
         )}
 
-        {unknownFace && confirmProgress === 0 && (
+        {choice && (
+          <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-3 p-4 z-20">
+            <p className="text-white text-center font-medium">
+              ระบบแยกไม่ออกว่าเป็นใคร<br />
+              <span className="text-sm text-gray-300">แตะชื่อของคุณเพื่อลงเวลา</span>
+            </p>
+            <div className="flex flex-wrap justify-center gap-3">
+              {choice.map(id => {
+                const emp = employees.find(e => e.id === id)
+                if (!emp) return null
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => pickEmployee(id)}
+                    className="flex flex-col items-center gap-1.5 bg-white rounded-xl p-3 w-36 hover:bg-blue-50 active:scale-95 transition"
+                  >
+                    {emp.face_photo ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={emp.face_photo} alt={emp.name} className="w-20 h-20 rounded-full object-cover border-2 border-gray-200" />
+                    ) : (
+                      <div className="w-20 h-20 rounded-full bg-gray-200" />
+                    )}
+                    <span className="text-sm font-semibold text-gray-900 text-center leading-tight break-words">{emp.name}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <button type="button" onClick={closeChoice} className="text-sm text-gray-300 underline mt-1">
+              ไม่ใช่ทั้งสองคน — สแกนใหม่
+            </button>
+          </div>
+        )}
+
+        {unknownFace && confirmProgress === 0 && !choice && (
           <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-red-600 text-white text-sm px-4 py-1.5 rounded-full font-medium whitespace-nowrap">
             ไม่พบข้อมูลใบหน้าในระบบ
           </div>
